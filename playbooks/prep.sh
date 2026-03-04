@@ -137,7 +137,7 @@ set_host_config() {
             lbaf=0
             ses=1
             kernel='-tkg-aster'
-            mcode='schedtoold pikaur sof-firmware laptop-mode-tools-git upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git pikaur'
+            mcode='schedtoold pikaur sof-firmware laptop-mode-tools-git upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git'
             connect_wifi
             wait_for_network
             post_pacmanconf
@@ -151,19 +151,6 @@ set_host_config() {
             ses=1
             kernel='linux'
             mcode=''
-            wait_for_network
-            post_pacmanconf
-            ;;
-        HEPHAESTUS)
-            arr_drives=('sda' 'md126')
-            arr_partitions=('sda' 'md126')
-            arr_mkfs=('sda1' 'sda2' 'md126p1')
-            arr_filesystems=('sda2' 'sda1' 'md126p1')
-            lbaf=0
-            ses=1
-            kernel='linux-tkg-ntl'
-            mcode='schedtoold pikaur upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git pikaur'
-            connect_wifi
             wait_for_network
             post_pacmanconf
             ;;
@@ -577,7 +564,7 @@ post_start() {
 
     log "Installing base system with pacstrap..."
     /usr/bin/pacstrap -K /mnt base base-devel \
-        intel-ucode $mcode $kernel "linux${kernel}-headers" \
+        intel-ucode $mcode linux${kernel} "linux${kernel}-headers" \
         linux-firmware linux-firmware-broadcom linux-firmware-liquidio linux-firmware-mellanox \
         linux-firmware-nfp linux-firmware-qlogic \
         dosfstools f2fs-tools exfatprogs exfat-utils \
