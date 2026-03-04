@@ -523,17 +523,18 @@ CHROOT_EOF
     log "Installing Ansible community.general collection in chroot (required by ansible-role-xfce4)..."
     arch-chroot /mnt ansible-galaxy collection install community.general --force
     arch-chroot /mnt ansible-galaxy collection install -r /media/ansible-playbooks/requirements.yml -p /media/ansible-playbooks/collections
+    arch-chroot /mnt ansible-galaxy collection install -r /media/ansible-playbooks/requirements.yml
     log "Installing Ansible community.general and requirements... completed"
     
     # Task 2: Run ansible-role-user, ansible-role-gpu, for all hosts
     log "Ansible roles user and gpu running..."
-    arch-chroot /mnt ansible-playbook /media/ansible-playbooks/main.yml --tags user,gpu --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
+    arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags user,gpu --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
     log "Ansible roles user and gpu completed."
 
     # Task 3: Run ansible-role-xfce4 for ASTER and YUGEN only
     if [[ "$host" == "ASTER" || "$host" == "YUGEN" ]]; then
         log "Running ansible roles xfce4 for $host..."
-        arch-chroot /mnt ansible-playbook /media/ansible-playbooks/main.yml --tags xfce4 --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
+        arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags xfce4 --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
         log "Ansible roles xfce4 completed for $host."
     fi
     log "Running ansible for $host... completed."
