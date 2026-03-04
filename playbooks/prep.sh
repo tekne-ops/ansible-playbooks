@@ -137,7 +137,7 @@ set_host_config() {
             lbaf=0
             ses=1
             kernel='-tkg-aster'
-            mcode='schedtoold pikaur sof-firmware laptop-mode-tools-git upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git'
+            mcode='sound-theme-smooth schedtoold pikaur sof-firmware laptop-mode-tools-git upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git'
             connect_wifi
             wait_for_network
             post_pacmanconf
@@ -162,7 +162,7 @@ set_host_config() {
             lbaf=1
             ses=2
             kernel='-tkg-yugen'
-            mcode='upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git pikaur'
+            mcode='sound-theme-smooth upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git pikaur'
             # YUGEN has no WiFi - requires Ethernet
             wait_for_network
             post_pacmanconf
@@ -577,7 +577,8 @@ post_start() {
         nvme-cli openssh openssl screen sudo gnupg bind cronie inetutils whois zip unzip p7zip sed fuse \
 	    mdadm jq curl make pkg-config dbus openbsd-netcat irqbalance schedtool shfmt \
         gsmartcontrol shellcheck bats cpupower devtools fakechroot fakeroot tcpdump parted xfsprogs \
-        libsmbios fwupd 
+        libsmbios fwupd pipewire pipewire-audio pipewire-libcamera pipewire-jack pipewire-alsa \
+        pipewire-pulse lib32-pipewire lib32-pipewire-jack wireplumber pavucontrol
 
     log "Generating fstab..."
     genfstab -U /mnt >> /mnt/etc/fstab

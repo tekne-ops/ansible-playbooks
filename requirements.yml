@@ -1,8 +1,9 @@
 
 collections:
   # From Git tag
-  - name: git+https://github.com/dvaliente-tekne/ansible-collections.git
-    version: v1.0.0
+  - name: git+https://github.com/dvaliente-tekne/ansible-collections.git#/tekne/devops
+    type: git
+    version: main
 
   # From Git SHA (reproducible dev pin)
   # - name: git+ssh://git@git.example.com/ansible-collections/namespace.other_collection.git
