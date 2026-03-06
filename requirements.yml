@@ -1,7 +1,7 @@
 
 collections:
   # From Git tag
-  - name: git+https://github.com/dvaliente-tekne/ansible-collections.git#/tekne/devops
+  - name: git+https://github.com/tekne-ops/ansible-collections.git#/tekne/devops
     type: git
     version: main
 
