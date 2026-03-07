@@ -137,7 +137,7 @@ set_host_config() {
             lbaf=0
             ses=1
             kernel='-tkg-aster'
-            mcode='sound-theme-smooth schedtoold pikaur sof-firmware laptop-mode-tools-git upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git'
+            mcode='lib32-opencl-nvidia lib32-vulkan-icd-loader lib32-nvidia-utils nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth schedtoold pikaur sof-firmware laptop-mode-tools-git upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git'
             connect_wifi
             wait_for_network
             post_pacmanconf
@@ -162,7 +162,7 @@ set_host_config() {
             lbaf=1
             ses=2
             kernel='-tkg-yugen'
-            mcode='sound-theme-smooth upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git pikaur'
+            mcode='lib32-opencl-nvidia lib32-vulkan-icd-loader lib32-nvidia-utils nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git pikaur'
             # YUGEN has no WiFi - requires Ethernet
             wait_for_network
             post_pacmanconf
@@ -528,7 +528,7 @@ CHROOT_EOF
     
     # Task 2: Run ansible-role-user, ansible-role-gpu, for all hosts
     log "Ansible roles user and gpu running..."
-    arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags user,gpu --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
+    arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags user --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
     log "Ansible roles user and gpu completed."
 
     # Task 3: Run ansible-role-xfce4 for ASTER and YUGEN only
