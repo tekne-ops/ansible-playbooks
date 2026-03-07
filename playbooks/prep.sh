@@ -150,7 +150,7 @@ set_host_config() {
             lbaf=0
             ses=1
             kernel='linux'
-            mcode=''
+            mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel'
             wait_for_network
             post_pacmanconf
             ;;
