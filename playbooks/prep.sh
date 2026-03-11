@@ -510,7 +510,7 @@ echo 'KEYMAP=us' > /etc/vconsole.conf
     --create \
     --label BOOT \
     --loader /vmlinuz-linux${kernel} \
-    --unicode " root=LABEL=ROOT rw initrd=\intel-ucode.img initrd=\initramfs-linux${kernel}.img enable_guc=3 intel_pstate=passive kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2"
+    --unicode " root=LABEL=ROOT rw initrd=\intel-ucode.img initrd=\initramfs-linux${kernel}.img enable_guc=3 intel_pstate=passive kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2 mt7925e.disable_aspm=1"
 
 # Generate initramfs
 mkinitcpio -p linux${kernel}
