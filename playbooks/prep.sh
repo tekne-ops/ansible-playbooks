@@ -488,6 +488,13 @@ post_chroot_config() {
         THEMIS|HEPHAESTUS) boot_disk="/dev/sda" ;;
     esac
 
+    # ASTER only: ensure mkinitcpio loads WiFi (mt7925e) and Bluetooth (btusb) before generating initramfs
+    if [[ "$host" == 'ASTER' ]]; then
+        log "Ensuring MODULES=(mt7925e btusb) in /mnt/etc/mkinitcpio.conf for ASTER..."
+        sed -i 's/^MODULES=.*/MODULES=(mt7925e btusb)/' /mnt/etc/mkinitcpio.conf
+        grep -q 'MODULES=(mt7925e btusb)' /mnt/etc/mkinitcpio.conf || echo 'MODULES=(mt7925e btusb)' >> /mnt/etc/mkinitcpio.conf
+    fi
+
     arch-chroot /mnt /bin/bash <<CHROOT_EOF
 set -euo pipefail
 
