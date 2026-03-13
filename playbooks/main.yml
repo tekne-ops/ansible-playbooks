@@ -113,3 +113,6 @@
 
     - role: tekne.devops.gerbera
       tags: [gerbera]
+
+    - role: tekne.devops.consul
+      tags: [consul]
