@@ -1,3 +1,3 @@
 #!/bin/bash
 
-ansible-playbook main.yml --tags consul
+sudo ansible-playbook main.yml --tags consul
