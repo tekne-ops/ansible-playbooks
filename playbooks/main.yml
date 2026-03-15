@@ -116,3 +116,6 @@
 
     - role: tekne.devops.consul
       tags: [consul]
+
+    - role: tekne.devops.jenkins
+      tags: [jenkins]
