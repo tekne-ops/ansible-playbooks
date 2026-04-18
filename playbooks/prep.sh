@@ -137,7 +137,12 @@ set_host_config() {
             lbaf=0
             ses=1
             kernel='-tkg-aster'
-            mcode='lib32-mesa vulkan-intel lib32-vulkan-intel lib32-opencl-nvidia lib32-vulkan-icd-loader lib32-nvidia-utils nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth schedtoold pikaur sof-firmware laptop-mode-tools-git upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git'
+            mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel xorg-server lib32-opencl-nvidia-tkg \
+                   lib32-vulkan-icd-loader lib32-nvidia-utils-tkg nvidia-open-dkms-tkg nvidia-settings-tkg \
+                   opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth schedtoold pikaur \
+                   sof-firmware laptop-mode-tools-git upd72020x-fw wd719x-firmware ast-firmware \
+                   aic94xx-firmware blesh-git i8kutils brightnessctl xf86-video-intel libinput bluez bluez-utils \
+                   blueman iwd tlp tlp-rdw power-profiles-daemon thermald zram-generator'
             connect_wifi
             wait_for_network
             post_pacmanconf
@@ -585,8 +590,7 @@ post_start() {
         nvme-cli openssh openssl screen sudo gnupg bind cronie inetutils whois zip unzip p7zip sed fuse \
 	    mdadm jq curl make pkg-config dbus openbsd-netcat irqbalance schedtool shfmt \
         gsmartcontrol shellcheck bats cpupower devtools fakechroot fakeroot tcpdump parted xfsprogs \
-        libsmbios fwupd pipewire pipewire-audio pipewire-libcamera pipewire-jack pipewire-alsa \
-        pipewire-pulse lib32-pipewire lib32-pipewire-jack wireplumber wmctrl man
+        libsmbios fwupd pipewire pipewire-alsa pipewire-jack pipewire-pulse wireplumber alsa-utils wmctrl man udevil microcode_ctl
 
     log "Generating fstab..."
     genfstab -U /mnt >> /mnt/etc/fstab
