@@ -137,12 +137,7 @@ set_host_config() {
             lbaf=0
             ses=1
             kernel='-tkg-aster'
-            mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel xorg-server lib32-opencl-nvidia-tkg \
-                   lib32-vulkan-icd-loader lib32-nvidia-utils-tkg nvidia-open-dkms-tkg nvidia-settings-tkg \
-                   opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth schedtoold pikaur \
-                   sof-firmware laptop-mode-tools-git upd72020x-fw wd719x-firmware ast-firmware \
-                   aic94xx-firmware blesh-git i8kutils brightnessctl xf86-video-intel libinput bluez bluez-utils \
-                   blueman iwd tlp tlp-rdw power-profiles-daemon thermald zram-generator'
+            mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel xorg-server lib32-opencl-nvidia-tkg lib32-vulkan-icd-loader lib32-nvidia-utils-tkg nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth schedtoold pikaur sof-firmware upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git bluez bluez-utils blueman iwd brightnessctl libinput thermald tlp tlpui zram-generator'
             connect_wifi
             wait_for_network
             post_pacmanconf
@@ -583,14 +578,14 @@ post_start() {
         dosfstools f2fs-tools exfatprogs exfat-utils \
         ansible-core ansible-lint ansible \
         python python-pip python-pipx python-passlib \
-        vim vim-vital vim-tagbar vim-tabular vim-syntastic vim-supertab vim-spell-es vim-spell-en \
-        vim-nerdtree vim-nerdcommenter vim-indent-object vim-gitgutter vim-devicons vim-ansible \
+        vim vim-tagbar vim-tabular vim-syntastic vim-supertab vim-spell-es vim-spell-en \
+        vim-nerdtree vim-nerdcommenter vim-devicons vim-ansible \
         mlocate bash-completion pkgfile efibootmgr acpi acpid iwd wpa_supplicant \
         wireless-regdb rsync git wget reflector iptables-nft less usb_modeswitch libsecret gzip tar zlib xz \
         nvme-cli openssh openssl screen sudo gnupg bind cronie inetutils whois zip unzip p7zip sed fuse \
 	    mdadm jq curl make pkg-config dbus openbsd-netcat irqbalance schedtool shfmt \
         gsmartcontrol shellcheck bats cpupower devtools fakechroot fakeroot tcpdump parted xfsprogs \
-        libsmbios fwupd pipewire pipewire-alsa pipewire-jack pipewire-pulse wireplumber alsa-utils wmctrl man udevil microcode_ctl
+        libsmbios fwupd pipewire pipewire-alsa pipewire-jack pipewire-pulse wireplumber alsa-utils wmctrl man
 
     log "Generating fstab..."
     genfstab -U /mnt >> /mnt/etc/fstab
