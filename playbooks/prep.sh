@@ -137,7 +137,7 @@ set_host_config() {
             lbaf=0
             ses=1
             kernel='-tkg-aster'
-            mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel xorg-server lib32-opencl-nvidia-tkg lib32-vulkan-icd-loader lib32-nvidia-utils-tkg nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth schedtoold pikaur sof-firmware upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git bluez bluez-utils blueman iwd brightnessctl libinput thermald tlp tlpui'
+            mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel xorg-server lib32-opencl-nvidia-tkg lib32-vulkan-icd-loader lib32-nvidia-utils-tkg nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth schedtoold pikaur sof-firmware upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git bluez bluez-utils blueman iwd brightnessctl libinput thermald tlp tlpui pipewire-audio libldac'
             connect_wifi
             wait_for_network
             post_pacmanconf
