@@ -130,10 +130,10 @@ validate_host() {
 set_host_config() {
     case "$host" in
         ASTER)
-            arr_drives=('nvme0')
-            arr_partitions=('nvme0n1')
-            arr_mkfs=('nvme0n1p1' 'nvme0n1p2')
-            arr_filesystems=('nvme0n1p2' 'nvme0n1p1')
+            arr_drives=('nvme0' 'nvme1')
+            arr_partitions=('nvme0n1' 'nvme1n1')
+            arr_mkfs=('nvme0n1p1' 'nvme0n1p2' 'nvme1n1p1')
+            arr_filesystems=('nvme0n1p2' 'nvme0n1p1' 'nvme1n1p1')
             lbaf=0
             ses=1
             kernel='-tkg-aster'
