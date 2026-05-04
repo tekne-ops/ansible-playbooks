@@ -577,7 +577,7 @@ post_start() {
         linux-firmware-nfp linux-firmware-qlogic \
         dosfstools f2fs-tools exfatprogs exfat-utils \
         ansible-core ansible-lint ansible \
-        python python-pip python-pipx python-passlib \
+        python311 python-pip python-pipx python-passlib python-pipenv \
         vim vim-tagbar vim-tabular vim-syntastic vim-supertab vim-spell-es vim-spell-en \
         vim-nerdtree vim-nerdcommenter vim-devicons vim-ansible \
         mlocate bash-completion pkgfile efibootmgr acpi acpid iwd wpa_supplicant \
