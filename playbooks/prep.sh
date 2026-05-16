@@ -314,10 +314,6 @@ post_partition() {
             error "Failed to partition /dev/$partition"
         fi
 
-        if [[ "$host" == 'ASTER' ]]; then
-            log "Partitions for $host are done."
-            break
-        fi
     done
 
     # Create filesystems
@@ -386,10 +382,6 @@ post_partition() {
         esac
         /usr/bin/partprobe
 
-        if [[ "$host" == 'ASTER' ]] && [[ "$filesystem" == 'nvme0n1p2' ]]; then
-            log "Filesystems created for $host."
-            break
-        fi
     done
     
     log "Partitioning and filesystem creation complete."
