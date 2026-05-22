@@ -149,7 +149,7 @@ set_host_config() {
             arr_filesystems=('sda2' 'sda1' 'nvme1n1p1' 'nvme1n1p2' 'nvme0n1p1') # 'sdb1'
             lbaf=0
             ses=1
-            kernel='linux'
+            kernel='linux-rt'
             mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel'
             wait_for_network
             post_pacmanconf
