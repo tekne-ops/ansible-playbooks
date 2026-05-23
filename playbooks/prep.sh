@@ -137,7 +137,7 @@ set_host_config() {
             lbaf=0
             ses=1
             kernel='-tkg-aster'
-            mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel xorg-server lib32-opencl-nvidia-tkg lib32-vulkan-icd-loader lib32-nvidia-utils-tkg nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth schedtoold pikaur sof-firmware upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git bluez bluez-utils blueman iwd brightnessctl libinput thermald tlp tlpui pipewire-audio libldac libfreeaptx'
+            mcode='python311 python-pip python-pipx python-passlib python-pipenv mesa lib32-mesa vulkan-intel lib32-vulkan-intel xorg-server lib32-opencl-nvidia-tkg lib32-vulkan-icd-loader lib32-nvidia-utils-tkg nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth schedtoold pikaur sof-firmware upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git bluez bluez-utils blueman iwd brightnessctl libinput thermald tlp tlpui pipewire-audio libldac libfreeaptx'
             connect_wifi
             wait_for_network
             post_pacmanconf
@@ -149,7 +149,7 @@ set_host_config() {
             arr_filesystems=('sda2' 'sda1' 'nvme1n1p1' 'nvme1n1p2' 'nvme0n1p1') # 'sdb1'
             lbaf=0
             ses=1
-            kernel='linux-rt'
+            kernel='linux-zen'
             mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel'
             wait_for_network
             post_pacmanconf
@@ -162,7 +162,7 @@ set_host_config() {
             lbaf=1
             ses=2
             kernel='-tkg-yugen'
-            mcode='lib32-opencl-nvidia lib32-vulkan-icd-loader lib32-nvidia-utils nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git pikaur'
+            mcode='python311 python-pip python-pipx python-passlib python-pipenv lib32-opencl-nvidia lib32-vulkan-icd-loader lib32-nvidia-utils nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git pikaur'
             # YUGEN has no WiFi - requires Ethernet
             wait_for_network
             post_pacmanconf
@@ -569,7 +569,6 @@ post_start() {
         linux-firmware-nfp linux-firmware-qlogic \
         dosfstools f2fs-tools exfatprogs exfat-utils \
         ansible-core ansible-lint ansible \
-        python311 python-pip python-pipx python-passlib python-pipenv \
         vim vim-tagbar vim-tabular vim-syntastic vim-supertab vim-spell-es vim-spell-en \
         vim-nerdtree vim-nerdcommenter vim-devicons vim-ansible \
         mlocate bash-completion pkgfile efibootmgr acpi acpid iwd wpa_supplicant \
