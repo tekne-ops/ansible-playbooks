@@ -8,7 +8,7 @@ set -euo pipefail
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly LOG_FILE="/tmp/prep_$(date '+%Y%m%d_%H%M%S').log"
-readonly VALID_HOSTS=("ASTER" "THEMIS" "HEPHAESTUS" "YUGEN")
+readonly VALID_HOSTS=("ASTER" "THEMIS" "YUGEN")
 
 # F2FS constants
 readonly F2FS_MOUNT_OPTS='compress_algorithm=zstd:6,compress_chksum,atgc,gc_merge,lazytime'
