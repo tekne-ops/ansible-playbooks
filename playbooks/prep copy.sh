@@ -144,8 +144,8 @@ set_host_config() {
         THEMIS)
             arr_drives=('nvme0' 'nvme1' 'sda')
             arr_partitions=('nvme0n1' 'nvme1n1' 'sda')
-            arr_mkfs=('nvme0n1p1' 'nvme1n1p1' 'nvme1n1p2' 'sda1' 'sda2')
-            arr_filesystems=('sda2' 'sda1' 'nvme1n1p1' 'nvme1n1p2' 'nvme0n1p1')
+            arr_mkfs=('nvme0n1p1' 'nvme1n1p1' 'nvme1n1p2' 'sda1')
+            arr_filesystems=('nvme1n1p2' 'nvme0n1p1' 'nvme1n1p1' 'sda1')
             lbaf=0
             ses=1
             kernel='tkg-themis'
