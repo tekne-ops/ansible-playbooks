@@ -100,7 +100,7 @@
       tags: [nftables]
   
     - role: tekne.devops.docker
-      tags: [docker]
+      tags: [docker-host]
 
     - role: tekne.devops.libvirt
       tags: [libvirt]
