@@ -386,7 +386,7 @@ post_mount() {
             sda1)
                 log "Mounting CACHE filesystem: /dev/$filesystem -> /mnt/mnt/cache"
                 /usr/bin/mount -o "$F2FS_MOUNT_OPTS" /dev/"$filesystem" /mnt/mnt/cache
-                /usr/bin/mkdir -p /mnt/mnt/cache/{build,pacman,docker-build,tmp,staging}
+                /usr/bin/mkdir -p /mnt/mnt/cache/{build,pacman,docker-build,tmp,staging,aur-build-tekne}
                 ;;
             nvme0n1p1)
                 log "Mounting BOOT filesystem: /dev/$filesystem -> /mnt/boot"
