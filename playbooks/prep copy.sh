@@ -447,6 +447,14 @@ mkinitcpio -p linux${kernel}
 echo "Automated chroot configuration complete."
 CHROOT_EOF
 
+    if [[ "$host" == "THEMIS" ]]; then
+        arch-chroot /mnt mount --bind /mnt/cache/tmp /tmp
+        arch-chroot /mnt mount --bind /mnt/cache/pacman /var/cache/pacman/pkg
+        arch-chroot /mnt mount --bind /mnt/cache/docker-build /var/cache/docker/build
+        arch-chroot /mnt mount --bind /mnt/cache/staging /var/cache/staging
+        arch-chroot /mnt mount --bind /mnt/cache/build /var/cache/build
+    fi
+
     log "Running ansible for $host..."
     # Task 1: Install collections and overall requirements for ansible-playbook to run
     log "Installing Ansible community.general collection in chroot (required by ansible-role-xfce4)..."
@@ -457,7 +465,7 @@ CHROOT_EOF
     
     # Task 2: Run ansible-role-user, ansible-role-gpu, for all hosts
     log "Ansible roles user and gpu running..."
-    arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags user --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
+    arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags user,os --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
     log "Ansible roles user and gpu completed."
 
     # Task 3: Run ansible-role-xfce4 for ASTER and YUGEN only
@@ -465,14 +473,6 @@ CHROOT_EOF
         log "Running ansible roles xfce4 for $host..."
         arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags xfce4 --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
         log "Ansible roles xfce4 completed for $host."
-    fi
-
-    if [[ "$host" == "THEMIS" ]]; then
-        arch-chroot /mnt mount --bind /mnt/cache/tmp /tmp
-        arch-chroot /mnt mount --bind /mnt/cache/pacman /var/cache/pacman/pkg
-        arch-chroot /mnt mount --bind /mnt/cache/docker-build /var/cache/docker/build
-        arch-chroot /mnt mount --bind /mnt/cache/staging /var/cache/staging
-        arch-chroot /mnt mount --bind /mnt/cache/build /var/cache/build
     fi
 
     log "Running ansible for $host... completed."
