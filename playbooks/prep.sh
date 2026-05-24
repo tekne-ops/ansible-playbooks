@@ -140,19 +140,17 @@ set_host_config() {
             mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel xorg-server lib32-opencl-nvidia-tkg lib32-vulkan-icd-loader lib32-nvidia-utils-tkg nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth schedtoold pikaur sof-firmware upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git bluez bluez-utils blueman iwd brightnessctl libinput thermald tlp tlpui pipewire-audio libldac libfreeaptx'
             connect_wifi
             wait_for_network
-            post_pacmanconf
             ;;
         THEMIS)
-            arr_drives=('nvme0' 'nvme1' 'sda') # 'sdb'
-            arr_partitions=('nvme0n1' 'nvme1n1' 'sda') # 'sdb'
-            arr_mkfs=('nvme0n1p1' 'nvme1n1p1' 'nvme1n1p2' 'sda1' 'sda2') # 'sdb1'
-            arr_filesystems=('sda2' 'sda1' 'nvme1n1p1' 'nvme1n1p2' 'nvme0n1p1') # 'sdb1'
+            arr_drives=('nvme0' 'nvme1' 'sda')
+            arr_partitions=('nvme0n1' 'nvme1n1' 'sda')
+            arr_mkfs=('nvme0n1p1' 'nvme0n1p2' 'nvme1n1p1' 'sda1')
+            arr_filesystems=('nvme1n1p2' 'nvme0n1p1' 'nvme1n1p1' 'sda1')
             lbaf=0
             ses=1
-            kernel='linux-zen'
+            kernel='-tkg-themis'
             mcode='mesa lib32-mesa vulkan-intel lib32-vulkan-intel'
             wait_for_network
-            post_pacmanconf
             ;;
         YUGEN)
             arr_drives=('nvme0' 'nvme1' 'nvme2')
@@ -165,7 +163,6 @@ set_host_config() {
             mcode='lib32-opencl-nvidia lib32-vulkan-icd-loader lib32-nvidia-utils nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader nvidia-utils-tkg sound-theme-smooth upd72020x-fw wd719x-firmware ast-firmware aic94xx-firmware blesh-git pikaur'
             # YUGEN has no WiFi - requires Ethernet
             wait_for_network
-            post_pacmanconf
             ;;
         *)
             error "Unknown host: '$host'. Valid hosts: ${VALID_HOSTS[*]}"
@@ -180,6 +177,27 @@ set_host_config() {
 
 post_pacmanconf() {
     log "Configuring pacman.conf..."
+
+    # Mount media partition only on hosts that have /dev/sda3
+    if [[ "$host" == 'ASTER' ]]; then
+        if [[ -b /dev/sda3 ]]; then
+            log "Mounting media partition /dev/sda3 -> /mnt/media"
+            mount /dev/sda3 /mnt/media
+        else
+            log "WARNING: /dev/sda3 not found, skipping media mount."
+        fi
+    fi
+    if [[ "$host" == 'THEMIS' ]]; then
+        if [[ -b /dev/sdc3 ]]; then
+            log "Mounting media partition /dev/sdc3 -> /mnt/media"
+            mount /dev/sda3 /mnt/media
+
+            cp -ra /mnt/media/binaries/themis/* /tmp/binaries/themis/
+            repo-add /tmp/binaries/themis/local-repo.db.tar.gz /tmp/binaries/themis/*.pkg.tar.zst
+        else
+            log "WARNING: /dev/sdc3 not found, skipping media mount."
+        fi
+    fi
     
     cat << 'EOF' > /etc/pacman.conf
 [options]
@@ -224,7 +242,16 @@ SigLevel = Optional TrustAll
 Server = http://repo.tekne.sv
 EOF
     fi
-    
+
+    if [[ "$host" == 'THEMIS' ]]; then
+        cat << 'EOF' >> /etc/pacman.conf
+
+[local-repo]
+SigLevel = Optional TrustAll
+Server = file:///tmp/binaries/themis
+EOF
+    fi
+
     log "pacman.conf configured."
 
 /usr/bin/reflector --country 'United States' --latest 100 --sort rate --protocol 'https,ftp' --age 168 --save /etc/pacman.d/mirrorlist
@@ -269,29 +296,14 @@ post_partition() {
         
         case "$partition" in
             nvme0n1)
-                if [[ "$host" == 'THEMIS' ]]; then
-                    parameters="mklabel gpt mkpart xfs 0% 100% name 1 'libvirt-img' p free"
-                else
-                    parameters="mklabel gpt mkpart esp 0% 1% name 1 'BOOT' mkpart f2fs 1% 100% name 2 'ROOT' set 1 esp on p free"
-                fi
+                parameters="mklabel gpt mkpart esp 0% 1% name 1 'BOOT' mkpart f2fs 1% 100% name 2 'ROOT' set 1 esp on p free"
                 ;;
             sda)
-                if [[ "$host" == 'THEMIS' ]]; then
-                    parameters="mklabel gpt mkpart esp 0% 10% name 1 'BOOT' mkpart ext4 10% 100% name 2 'ROOT' set 1 esp on p free"
-                else
-                    parameters="mklabel gpt mkpart esp 0% 1% name 1 'BOOT' mkpart f2fs 1% 100% name 2 'ROOT' set 1 esp on p free"
-                fi
-                ;;
-            sdb)
-                if [[ "$host" == 'THEMIS' ]]; then
-                    parameters="mklabel gpt mkpart primary xfs 0% 100% name 1 'GERBERA' p free"
-                else
-                    error "PARTITION FAILED: sdb only used on THEMIS"
-                fi
+                parameters="mklabel gpt mkpart f2fs 0% 100% name 1 'CACHE'"
                 ;;
             nvme1n1)
                 if [[ "$host" == 'THEMIS' ]]; then
-                    parameters="mklabel gpt mkpart xfs 0% 96% name 1 'docker' p free mkpart f2fs 96% 100% name 2 'code' p free"
+                    parameters="mklabel gpt mkpart f2fs 0% 100% name 1 'DOCKER'"
                 else
                     local partition_name
                     partition_name='HOME'
@@ -322,54 +334,24 @@ post_partition() {
     for filesystem in "${arr_mkfs[@]}"; do
         case "$filesystem" in
             nvme0n1p1)
-                if [[ "$host" == 'THEMIS' ]]; then
-                    log "Creating XFS filesystem (libvirt-img) on /dev/$filesystem..."
-                    /usr/bin/mkfs.xfs -f -m reflink=1,crc=1 -L 'libvirt-img' /dev/"$filesystem"
-                else
-                    log "Creating FAT32 filesystem on /dev/$filesystem..."
-                    /usr/bin/mkfs.vfat -F32 -n 'BOOT' /dev/"$filesystem"
-                fi
-                ;;
-            sda1)
                 log "Creating FAT32 filesystem on /dev/$filesystem..."
                 /usr/bin/mkfs.vfat -F32 -n 'BOOT' /dev/"$filesystem"
+                ;;
+            sda1)
+                log "Creating F2FS filesystem on /dev/$filesystem..."
+                /usr/bin/mkfs.f2fs -l 'CACHE' -i -O "$F2FS_MKFS_OPTS" /dev/"$filesystem"
                 ;;
             nvme0n1p2)
                 log "Creating F2FS filesystem (ROOT) on /dev/$filesystem..."
                 /usr/bin/mkfs.f2fs -l 'ROOT' -i -O "$F2FS_MKFS_OPTS" /dev/"$filesystem"
                 ;;
-            sda2)
-                if [[ "$host" == 'THEMIS' ]]; then
-                    log "Creating ext4 filesystem (ROOT) on /dev/$filesystem..."
-                    /usr/bin/mkfs.ext4 -F -L 'ROOT' /dev/"$filesystem"
-                else
-                    log "Creating F2FS filesystem (ROOT) on /dev/$filesystem..."
-                    /usr/bin/mkfs.f2fs -l 'ROOT' -i -O "$F2FS_MKFS_OPTS" /dev/"$filesystem"
-                fi
-                ;;
             nvme1n1p1)
                 if [[ "$host" == 'THEMIS' ]]; then
-                    log "Creating XFS filesystem (docker) on /dev/$filesystem..."
-                    /usr/bin/mkfs.xfs -f -n ftype=1 -L 'docker' /dev/"$filesystem"
+                    log "Creating F2FS filesystem (docker) on /dev/$filesystem..."
+                    /usr/bin/mkfs.f2fs -l 'DOCKER' -i -O "$F2FS_MKFS_OPTS" /dev/"$filesystem"
                 else
                     log "Creating F2FS filesystem (HOME) on /dev/$filesystem..."
                     /usr/bin/mkfs.f2fs -l 'HOME' -i -O "$F2FS_MKFS_OPTS" /dev/"$filesystem"
-                fi
-                ;;
-            nvme1n1p2)
-                if [[ "$host" == 'THEMIS' ]]; then
-                    log "Creating F2FS filesystem (code) on /dev/$filesystem..."
-                    /usr/bin/mkfs.f2fs -l 'code' -i -O extra_attr,inode_checksum,sb_checksum,compression /dev/"$filesystem"
-                else
-                    error "FILESYSTEM FAILED: nvme1n1p2 only used on THEMIS"
-                fi
-                ;;
-            sdb1)
-                if [[ "$host" == 'THEMIS' ]]; then
-                    log "Creating XFS filesystem (GERBERA) on /dev/$filesystem..."
-                    /usr/bin/mkfs.xfs -f -L 'GERBERA' /dev/"$filesystem"
-                else
-                    error "FILESYSTEM FAILED: sdb1 only used on THEMIS"
                 fi
                 ;;
             nvme2n1p1|md126p1)
@@ -399,53 +381,25 @@ post_mount() {
             nvme0n1p2)
                 log "Mounting ROOT filesystem: /dev/$filesystem -> /mnt"
                 /usr/bin/mount -o "$F2FS_MOUNT_OPTS" /dev/"$filesystem" /mnt
-                /usr/bin/mkdir -p /mnt/{boot,home,media,var}
-                ;;
-            sda2)
-                log "Mounting ROOT filesystem: /dev/$filesystem -> /mnt"
-                /usr/bin/mount -o noatime,lazytime,commit=120 /dev/"$filesystem" /mnt
-                /usr/bin/mkdir -p /mnt/{boot,home,media,var}
-                ;;
-            nvme0n1p1)
-                if [[ "$host" == 'THEMIS' ]]; then
-                    log "Mounting libvirt images: /dev/$filesystem -> /mnt/var/lib/libvirt/images"
-                    /usr/bin/mkdir -p /mnt/var/lib/libvirt/images
-                    /usr/bin/mount -o noatime,nodiratime,attr2,inode64 /dev/"$filesystem" /mnt/var/lib/libvirt/images
-                else
-                    log "Mounting BOOT filesystem: /dev/$filesystem -> /mnt/boot"
-                    /usr/bin/mount /dev/"$filesystem" /mnt/boot
-                fi
+                /usr/bin/mkdir -p /mnt/{boot,home,media,var,mnt/cache}
                 ;;
             sda1)
+                log "Mounting CACHE filesystem: /dev/$filesystem -> /mnt/mnt/cache"
+                /usr/bin/mount -o "$F2FS_MOUNT_OPTS" /dev/"$filesystem" /mnt/mnt/cache
+                /usr/bin/mkdir -p /mnt/mnt/cache/{build,pacman,docker-build,tmp,staging}
+                ;;
+            nvme0n1p1)
                 log "Mounting BOOT filesystem: /dev/$filesystem -> /mnt/boot"
-                /usr/bin/mount -o umask=0077 /dev/"$filesystem" /mnt/boot
+                /usr/bin/mount /dev/"$filesystem" /mnt/boot
                 ;;
             nvme1n1p1)
                 if [[ "$host" == 'THEMIS' ]]; then
                     log "Mounting docker: /dev/$filesystem -> /mnt/var/lib/docker"
                     /usr/bin/mkdir -p /mnt/var/lib/docker
-                    /usr/bin/mount -o noatime,nodiratime,attr2,inode64 /dev/"$filesystem" /mnt/var/lib/docker
+                    /usr/bin/mount -o "$F2FS_MOUNT_OPTS" /dev/"$filesystem" /mnt/var/lib/docker
                 else
                     log "Mounting home filesystem: /dev/$filesystem -> /mnt/home"
                     /usr/bin/mount -o "$F2FS_MOUNT_OPTS" /dev/"$filesystem" /mnt/home
-                fi
-                ;;
-            nvme1n1p2)
-                if [[ "$host" == 'THEMIS' ]]; then
-                    log "Mounting code: /dev/$filesystem -> /mnt/srv/code"
-                    /usr/bin/mkdir -p /mnt/srv/code
-                    /usr/bin/mount -o noatime,lazytime,compress_algorithm=zstd:6,compress_chksum,atgc,gc_merge /dev/"$filesystem" /mnt/srv/code
-                else
-                    error "MOUNT FAILED: nvme1n1p2 only used on THEMIS"
-                fi
-                ;;
-            sdb1)
-                if [[ "$host" == 'THEMIS' ]]; then
-                    log "Mounting GERBERA: /dev/$filesystem -> /mnt/srv/docker/gerbera"
-                    /usr/bin/mkdir -p /mnt/srv/docker/gerbera
-                    /usr/bin/mount -o noatime,lazytime /dev/"$filesystem" /mnt/srv/docker/gerbera
-                else
-                    error "MOUNT FAILED: sdb1 only used on THEMIS"
                 fi
                 ;;
             nvme2n1p1|md126p1)
@@ -475,10 +429,7 @@ post_chroot_config() {
 
     # Determine boot disk based on host
     local boot_disk
-    case "$host" in
-        ASTER|YUGEN) boot_disk="/dev/nvme0n1" ;;
-        THEMIS|HEPHAESTUS) boot_disk="/dev/sda" ;;
-    esac
+    boot_disk="/dev/nvme0n1"
 
     # ASTER only: ensure mkinitcpio loads WiFi (mt7925e) and Bluetooth (btusb) before generating initramfs
     if [[ "$host" == 'ASTER' ]]; then
@@ -517,6 +468,20 @@ mkinitcpio -p linux${kernel}
 echo "Automated chroot configuration complete."
 CHROOT_EOF
 
+    systemctl daemon-reload
+    arch-chroot /mnt systemct daemon-reload
+    mkdir -p /mnt/var/cache/{pacman/pkg,docker/build,staging,build}
+# ============================================================================ # THEMIS-specific chroot configuration # ======================
+    if [[ "$host" == "THEMIS" ]]; then
+        # Mount bind mounts for THEMIS
+        arch-chroot /mnt mount --bind /mnt/cache/tmp /tmp
+        arch-chroot /mnt mount --bind /mnt/cache/pacman /var/cache/pacman/pkg
+        arch-chroot /mnt mount --bind /mnt/cache/docker-build /var/cache/docker/build
+        arch-chroot /mnt mount --bind /mnt/cache/staging /var/cache/staging    
+        arch-chroot /mnt mount --bind /mnt/cache/build /var/cache/build
+        log "THEMIS-specific chroot configuration completed."
+    fi
+
     log "Running ansible for $host..."
     # Task 1: Install collections and overall requirements for ansible-playbook to run
     log "Installing Ansible community.general collection in chroot (required by ansible-role-xfce4)..."
@@ -527,7 +492,7 @@ CHROOT_EOF
     
     # Task 2: Run ansible-role-user, ansible-role-gpu, for all hosts
     log "Ansible roles user and gpu running..."
-    arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags user --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
+    arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags user,os --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
     log "Ansible roles user and gpu completed."
 
     # Task 3: Run ansible-role-xfce4 for ASTER and YUGEN only
@@ -536,6 +501,7 @@ CHROOT_EOF
         arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags xfce4 --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
         log "Ansible roles xfce4 completed for $host."
     fi
+
     log "Running ansible for $host... completed."
 
     # log "Entering interactive chroot for password setup..."
@@ -551,11 +517,12 @@ post_start() {
     
     sed -i 's|#en_US.UTF-8 UTF-8|en_US.UTF-8 UTF-8|g' /etc/locale.gen
 
-    post_pacmanconf
-
     # Re-check internet before downloading packages
     wait_for_network
     
+    git clone https://github.com/tekne-ops/binaries.git /mnt/tmp/binaries
+    post_pacmanconf
+
     # Set NTP after network is confirmed up
     /usr/bin/timedatectl set-ntp true
 
@@ -568,8 +535,9 @@ post_start() {
         linux-firmware linux-firmware-broadcom linux-firmware-liquidio linux-firmware-mellanox \
         linux-firmware-nfp linux-firmware-qlogic \
         dosfstools f2fs-tools exfatprogs exfat-utils \
-        python python-pip python-pipx python-passlib python-pipenv \
+        python311 python-pip python-pipx python-passlib python-pipenv \
         ansible-core ansible-lint ansible \
+        blesh-git pikaur schedtoold \
         vim vim-tagbar vim-tabular vim-syntastic vim-supertab vim-spell-es vim-spell-en \
         vim-nerdtree vim-nerdcommenter vim-devicons vim-ansible \
         mlocate bash-completion pkgfile efibootmgr acpi acpid iwd wpa_supplicant \
@@ -577,7 +545,8 @@ post_start() {
         nvme-cli openssh openssl screen sudo gnupg bind cronie inetutils whois zip unzip p7zip sed fuse \
 	    mdadm jq curl make pkg-config dbus openbsd-netcat irqbalance schedtool shfmt \
         gsmartcontrol shellcheck bats cpupower devtools fakechroot fakeroot tcpdump parted xfsprogs \
-        libsmbios fwupd pipewire pipewire-alsa pipewire-jack pipewire-pulse wireplumber alsa-utils wmctrl man
+        libsmbios fwupd pipewire pipewire-alsa pipewire-jack pipewire-pulse wireplumber alsa-utils wmctrl man \
+        udisks2
 
     log "Generating fstab..."
     genfstab -U /mnt >> /mnt/etc/fstab
@@ -594,16 +563,6 @@ post_start() {
     echo "127.0.0.1 localhost $host.tekne.sv $host" >> /mnt/etc/hosts
     echo "$host" > /mnt/etc/hostname
 
-    # Mount media partition only on hosts that have /dev/sda3
-    if [[ "$host" == 'ASTER' || "$host" == 'HEPHAESTUS' ]]; then
-        if [[ -b /dev/sda3 ]]; then
-            log "Mounting media partition /dev/sda3 -> /mnt/media"
-            mount /dev/sda3 /mnt/media
-        else
-            log "WARNING: /dev/sda3 not found, skipping media mount."
-        fi
-    fi
-
     if [[ "$host" == 'HEPHAESTUS' ]]; then
         log "Configuring mdadm for RAID..."
         mdadm --detail --scan >> /mnt/etc/mdadm.conf
@@ -612,7 +571,6 @@ post_start() {
     log "Installation complete. Configuring chroot..."
     log "Log file saved to: $LOG_FILE"
     
-    post_chroot_config
 }
 
 # ============================================================================
@@ -657,6 +615,7 @@ main() {
     post_partition
     post_mount
     post_start
+    post_chroot_config
 }
 
 main "$@"
