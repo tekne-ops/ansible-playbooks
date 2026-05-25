@@ -546,7 +546,7 @@ post_start() {
 	    mdadm jq curl make pkg-config dbus openbsd-netcat irqbalance schedtool shfmt \
         gsmartcontrol shellcheck bats cpupower devtools fakechroot fakeroot tcpdump parted xfsprogs \
         libsmbios fwupd pipewire pipewire-alsa pipewire-jack pipewire-pulse wireplumber alsa-utils wmctrl man \
-        udisks2
+        udisks2 restic
 
     log "Generating fstab..."
     genfstab -U /mnt >> /mnt/etc/fstab
