@@ -817,8 +817,8 @@ task_run_ansible() {
   log INFO "Installing Ansible collections..."
   chroot_run "$mnt" ansible-galaxy collection install community.general --force
   chroot_run "$mnt" ansible-galaxy collection install -r "${ANSIBLE_ROOT}/requirements.yml" \
-    -p "${ANSIBLE_ROOT}/collections"
-  chroot_run "$mnt" ansible-galaxy collection install -r "${ANSIBLE_ROOT}/requirements.yml"
+    -p "${ANSIBLE_ROOT}/collections" --force
+  chroot_run "$mnt" ansible-galaxy collection install -r "${ANSIBLE_ROOT}/requirements.yml" --force
 
   log INFO "Running ansible-playbook (tags: user, network-host)..."
   chroot_run "$mnt" ansible-playbook "${ANSIBLE_ROOT}/playbooks/main.yml" \
