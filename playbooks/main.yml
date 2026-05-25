@@ -8,13 +8,14 @@
 #
 # Execution Flow:
 #   1. user      - Create users, SSH keys, shell configs
-#   2. os        - Locale, network, NTP, services
-#   3. pipewire  - Audio stack
-#   4. gpu       - Graphics drivers
-#   5. xfce4     - Desktop environment, LightDM, bluetooth
-#   6. gaming    - Steam, Lutris, gamemode
-#   7. onedrive  - OneDrive client installation and setup
-#   8. bootstrap - OneDrive sync (interactive), symlinks, XFCE config
+#   2. network   - systemd-networkd, WiFi, br0 (THEMIS), connectivity wait
+#   3. os        - Locale, NTP, mirrors, tekne repos (needs network up)
+#   4. pipewire  - Audio stack
+#   5. gpu       - Graphics drivers
+#   6. xfce4     - Desktop environment, LightDM, bluetooth
+#   7. gaming    - Steam, Lutris, gamemode
+#   8. onedrive  - OneDrive client installation and setup
+#   9. bootstrap - OneDrive sync (interactive), symlinks, XFCE config
 #
 # NOTE: The bootstrap role will pause for OneDrive authentication.
 # Follow the on-screen instructions to authenticate with Microsoft.
@@ -74,6 +75,9 @@
   roles:
     - role: tekne.devops.user
       tags: [user]
+
+    - role: tekne.devops.network
+      tags: [network-host]
 
     - role: tekne.devops.os
       tags: [os]

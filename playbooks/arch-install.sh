@@ -846,9 +846,9 @@ task_run_ansible() {
     -p "${ANSIBLE_ROOT}/collections"
   chroot_run "$mnt" ansible-galaxy collection install -r "${ANSIBLE_ROOT}/requirements.yml"
 
-  log INFO "Running ansible-playbook (tags: user, os)..."
+  log INFO "Running ansible-playbook (tags: user, network-host)..."
   chroot_run "$mnt" ansible-playbook "${ANSIBLE_ROOT}/playbooks/main.yml" \
-    --tags user,os \
+    --tags user,network-host \
     "${vault_args[@]}" \
     -e@"${ANSIBLE_ROOT}/group_vars_all/vault"
 
