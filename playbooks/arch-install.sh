@@ -35,6 +35,7 @@ readonly -a PIPELINE=(
   partition
   mkfs
   mount
+  configure_pacman
   pacstrap
   configure_base
   configure_chroot
@@ -540,7 +541,36 @@ task_mount() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 5 — Install base system (pacstrap)
+# Task 5 — Live pacman repos (before pacstrap; pacstrap uses host pacman.conf)
+# ---------------------------------------------------------------------------
+task_configure_pacman() {
+  local host="$1"
+
+  log INFO "=== Task 5: configure live pacman (repos + mirrorlist) before pacstrap ==="
+
+  require_mounted "$INSTALL_ROOT"
+  wait_for_network
+
+  if [[ "$host" == THEMIS ]]; then
+    themis_stage_local_repo
+  fi
+  append_pacman_repo "$host"
+
+  log INFO "Updating live mirrorlist with reflector..."
+  run /usr/bin/reflector \
+    --country 'United States' \
+    --latest 100 \
+    --sort rate \
+    --protocol 'https,ftp' \
+    --age 168 \
+    --save /etc/pacman.d/mirrorlist
+
+  log INFO "Synchronizing live package databases..."
+  run pacman -Syy
+}
+
+# ---------------------------------------------------------------------------
+# Task 6 — Install base system (pacstrap)
 # ---------------------------------------------------------------------------
 task_pacstrap() {
   local host="$1"
@@ -548,14 +578,10 @@ task_pacstrap() {
   local mcode="${HOST_MCODE[$host]}"
   local mnt="$INSTALL_ROOT"
 
-  log INFO "=== Task 5: pacstrap base system ==="
+  log INFO "=== Task 6: pacstrap base system ==="
   log INFO "linux${kernel} + host mcode packages"
 
   require_mounted "$mnt"
-  wait_for_network
-
-  log INFO "Synchronizing package databases..."
-  run pacman -Syy
 
   log INFO "Installing base system with pacstrap..."
   # shellcheck disable=SC2086
@@ -564,7 +590,7 @@ task_pacstrap() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 6 — fstab, symlinks, hosts, reflector, pacman repos
+# Task 7 — fstab, symlinks, hosts (post-pacstrap)
 # ---------------------------------------------------------------------------
 themis_stage_local_repo() {
   log INFO "THEMIS: staging local-repo from ${THEMIS_BINARIES_REPO}..."
@@ -603,14 +629,12 @@ themis_stage_local_repo() {
 
 append_pacman_repo() {
   local host="$1"
-  local conf="${INSTALL_ROOT}/etc/pacman.conf"
+  # Live ISO config — pacstrap installs using the host's /etc/pacman.conf
+  local conf=/etc/pacman.conf
   local section
 
   case "$host" in
-    THEMIS)
-      section=local-repo
-      themis_stage_local_repo
-      ;;
+    THEMIS) section=local-repo ;;
     ASTER|YUGEN|KVM) section=tekne ;;
     *) die "append_pacman_repo: unhandled host '$host'" ;;
   esac
@@ -649,10 +673,21 @@ task_configure_base() {
   local host="$1"
   local mnt="$INSTALL_ROOT"
 
-  log INFO "=== Task 6: post-install base configuration ==="
+  log INFO "=== Task 7: post-install base configuration ==="
 
   require_chroot_ready "$mnt"
-  wait_for_network
+
+  if [[ -f /etc/pacman.conf ]]; then
+    run mkdir -p "$mnt/etc"
+    if [[ -f "$mnt/etc/pacman.conf" ]]; then
+      run cp "$mnt/etc/pacman.conf" "$mnt/etc/pacman.conf.pacstrap.bak"
+    fi
+    run cp /etc/pacman.conf "$mnt/etc/pacman.conf"
+  fi
+  if (( ! DRY_RUN )) && [[ -f /etc/pacman.d/mirrorlist ]]; then
+    run mkdir -p "$mnt/etc/pacman.d"
+    run cp /etc/pacman.d/mirrorlist "$mnt/etc/pacman.d/mirrorlist"
+  fi
 
   log INFO "Generating fstab..."
   if (( DRY_RUN )); then
@@ -675,25 +710,10 @@ task_configure_base() {
   else
     log WARN "stub-resolv.conf not found on host; skipping resolv.conf symlink"
   fi
-
-  log INFO "Updating mirrorlist with reflector..."
-  run /usr/bin/reflector \
-    --country 'United States' \
-    --latest 100 \
-    --sort rate \
-    --protocol 'https,ftp' \
-    --age 168 \
-    --save /etc/pacman.d/mirrorlist
-  if (( ! DRY_RUN )) && [[ -f /etc/pacman.d/mirrorlist ]]; then
-    run mkdir -p "$mnt/etc/pacman.d"
-    run cp /etc/pacman.d/mirrorlist "$mnt/etc/pacman.d/mirrorlist"
-  fi
-
-  append_pacman_repo "$host"
 }
 
 # ---------------------------------------------------------------------------
-# Task 7 — locale, timezone, hostname, EFI boot, initramfs (arch-chroot)
+# Task 8 — locale, timezone, hostname, EFI boot, initramfs (arch-chroot)
 # ---------------------------------------------------------------------------
 task_configure_chroot() {
   local host="$1"
@@ -703,7 +723,7 @@ task_configure_chroot() {
   boot_disk="$(host_disk_path "$host" 0)"
   efi_params="$(efi_cmdline_for_host "$host" "$kernel")"
 
-  log INFO "=== Task 7: chroot locale, timezone, hostname, EFI boot ==="
+  log INFO "=== Task 8: chroot locale, timezone, hostname, EFI boot ==="
   log INFO "boot_disk=$boot_disk kernel=linux${kernel}"
 
   require_chroot_ready "$mnt"
@@ -754,14 +774,14 @@ task_configure_chroot() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 8 — Ansible playbooks in chroot
+# Task 9 — Ansible playbooks in chroot
 # ---------------------------------------------------------------------------
 task_run_ansible() {
   local host="$1"
   local mnt="$INSTALL_ROOT"
   local -a vault_args=()
 
-  log INFO "=== Task 8: Ansible (user, os; xfce4 on ASTER) ==="
+  log INFO "=== Task 9: Ansible (user, os; xfce4 on ASTER) ==="
 
   require_chroot_ready "$mnt"
   require_chroot_cmds "$mnt"
@@ -855,10 +875,11 @@ Pipeline tasks (use --from-task N):
   2  GPT partition
   3  mkfs
   4  mount under $INSTALL_ROOT
-  5  pacstrap
-  6  fstab, reflector, pacman repos
-  7  chroot locale, EFI, mkinitcpio, THEMIS cache binds
-  8  ansible-playbooks (xfce4 on ASTER only)
+  5  live pacman repos (THEMIS local-repo / tekne), reflector, pacman -Syy
+  6  pacstrap
+  7  fstab, pacman.conf copy, symlinks
+  8  chroot locale, EFI, mkinitcpio, THEMIS cache binds
+  9  ansible-playbooks (xfce4 on ASTER only)
 EOF
 }
 
