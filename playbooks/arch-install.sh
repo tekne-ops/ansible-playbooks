@@ -87,7 +87,7 @@ declare -A HOST_KERNEL=(
   [THEMIS]=-tkg-themis
   [ASTER]=-tkg-aster
   [YUGEN]=-tkg-yugen
-  [KVM]=-zen
+  [KVM]=-tkg-themis
 )
 
 declare -A HOST_MCODE=(
