@@ -794,7 +794,7 @@ task_run_ansible() {
   local mnt="$INSTALL_ROOT"
   local -a vault_args=()
 
-  log INFO "=== Task 9: Ansible (user, os; xfce4 on ASTER) ==="
+  log INFO "=== Task 9: Ansible (user, network-host; xfce4 on ASTER/YUGEN/KVM) ==="
 
   require_chroot_ready "$mnt"
   require_chroot_cmds "$mnt"
@@ -826,8 +826,8 @@ task_run_ansible() {
     "${vault_args[@]}" \
     -e@"${ANSIBLE_ROOT}/group_vars_all/vault"
 
-  if [[ "$host" == ASTER ]]; then
-    log INFO "Running ansible-playbook (tags: xfce4) for ASTER..."
+  if [[ "$host" == ASTER || "$host" == YUGEN || "$host" == KVM ]]; then
+    log INFO "Running ansible-playbook (tags: xfce4) for $host..."
     chroot_run "$mnt" ansible-playbook "${ANSIBLE_ROOT}/playbooks/main.yml" \
       --tags xfce4 \
       "${vault_args[@]}" \
@@ -892,7 +892,7 @@ Pipeline tasks (use --from-task N):
   6  pacstrap
   7  fstab, pacman.conf copy, symlinks
   8  chroot locale, EFI, mkinitcpio, THEMIS cache binds
-  9  ansible-playbooks (xfce4 on ASTER only)
+  9  ansible-playbooks (xfce4 on ASTER, YUGEN, KVM)
 EOF
 }
 
