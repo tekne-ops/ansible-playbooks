@@ -36,6 +36,7 @@ readonly -a PIPELINE=(
   mkfs
   mount
   configure_pacman
+  enable_multilib
   pacstrap
   configure_base
   configure_chroot
@@ -555,6 +556,35 @@ task_configure_pacman() {
     themis_stage_local_repo
   fi
   append_pacman_repo "$host"
+}
+
+enable_pacman_multilib() {
+  local conf=/etc/pacman.conf
+
+  if (( DRY_RUN )); then
+    log DRY-RUN "uncomment [multilib] + Include in $conf"
+    return 0
+  fi
+
+  if grep -q '^\[multilib\]' "$conf" 2>/dev/null; then
+    log INFO "pacman.conf already has [multilib]; skipping"
+    return 0
+  fi
+
+  log INFO "Enabling [multilib] in $conf"
+  sed -i 's/^#\[multilib\]/[multilib]/' "$conf"
+  sed -i 's/^#Include = \/etc\/pacman.d\/mirrorlist$/Include = \/etc\/pacman.d\/mirrorlist/' "$conf"
+}
+
+# ---------------------------------------------------------------------------
+# Task 6 — Enable multilib on live pacman.conf (before pacstrap)
+# ---------------------------------------------------------------------------
+task_enable_multilib() {
+  log INFO "=== Task 6: enable [multilib] in live pacman.conf ==="
+
+  require_mounted "$INSTALL_ROOT"
+
+  enable_pacman_multilib
 
   log INFO "Updating live mirrorlist with reflector..."
   run /usr/bin/reflector \
@@ -570,7 +600,7 @@ task_configure_pacman() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 6 — Install base system (pacstrap)
+# Task 7 — Install base system (pacstrap)
 # ---------------------------------------------------------------------------
 task_pacstrap() {
   local host="$1"
@@ -578,7 +608,7 @@ task_pacstrap() {
   local mcode="${HOST_MCODE[$host]}"
   local mnt="$INSTALL_ROOT"
 
-  log INFO "=== Task 6: pacstrap base system ==="
+  log INFO "=== Task 7: pacstrap base system ==="
   log INFO "linux${kernel} + host mcode packages"
 
   require_mounted "$mnt"
@@ -590,7 +620,7 @@ task_pacstrap() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 7 — fstab, symlinks, hosts (post-pacstrap)
+# Task 8 — fstab, symlinks, hosts (post-pacstrap)
 # ---------------------------------------------------------------------------
 themis_stage_local_repo() {
   log INFO "THEMIS: staging local-repo from ${THEMIS_BINARIES_REPO}..."
@@ -673,7 +703,7 @@ task_configure_base() {
   local host="$1"
   local mnt="$INSTALL_ROOT"
 
-  log INFO "=== Task 7: post-install base configuration ==="
+  log INFO "=== Task 8: post-install base configuration ==="
 
   require_chroot_ready "$mnt"
 
@@ -713,7 +743,7 @@ task_configure_base() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 8 — locale, timezone, hostname, EFI boot, initramfs (arch-chroot)
+# Task 9 — locale, timezone, hostname, EFI boot, initramfs (arch-chroot)
 # ---------------------------------------------------------------------------
 task_configure_chroot() {
   local host="$1"
@@ -723,7 +753,7 @@ task_configure_chroot() {
   boot_disk="$(host_disk_path "$host" 0)"
   efi_params="$(efi_cmdline_for_host "$host" "$kernel")"
 
-  log INFO "=== Task 8: chroot locale, timezone, hostname, EFI boot ==="
+  log INFO "=== Task 9: chroot locale, timezone, hostname, EFI boot ==="
   log INFO "boot_disk=$boot_disk kernel=linux${kernel}"
 
   require_chroot_ready "$mnt"
@@ -774,14 +804,14 @@ task_configure_chroot() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 9 — Ansible playbooks in chroot
+# Task 10 — Ansible playbooks in chroot
 # ---------------------------------------------------------------------------
 task_run_ansible() {
   local host="$1"
   local mnt="$INSTALL_ROOT"
   local -a vault_args=()
 
-  log INFO "=== Task 9: Ansible (user, os; xfce4 on ASTER) ==="
+  log INFO "=== Task 10: Ansible (user, os; xfce4 on ASTER) ==="
 
   require_chroot_ready "$mnt"
   require_chroot_cmds "$mnt"
@@ -875,11 +905,12 @@ Pipeline tasks (use --from-task N):
   2  GPT partition
   3  mkfs
   4  mount under $INSTALL_ROOT
-  5  live pacman repos (THEMIS local-repo / tekne), reflector, pacman -Syy
-  6  pacstrap
-  7  fstab, pacman.conf copy, symlinks
-  8  chroot locale, EFI, mkinitcpio, THEMIS cache binds
-  9  ansible-playbooks (xfce4 on ASTER only)
+  5  live pacman repos (THEMIS local-repo / tekne)
+  6  enable [multilib], reflector, pacman -Syy
+  7  pacstrap
+  8  fstab, pacman.conf copy, symlinks
+  9  chroot locale, EFI, mkinitcpio, THEMIS cache binds
+  10 ansible-playbooks (xfce4 on ASTER only)
 EOF
 }
 
