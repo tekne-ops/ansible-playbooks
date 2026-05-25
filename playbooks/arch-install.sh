@@ -11,7 +11,7 @@
 # Environment:
 #   ARCH_INSTALL_VAULT_PASS_FILE  — same as --vault-password-file
 #
-# Hosts: THEMIS (server), ASTER (laptop), YUGEN (pc)
+# Hosts: THEMIS (server), ASTER (laptop), YUGEN (pc), KVM (VM: vda BOOT/ROOT, vdb HOME)
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ readonly VERSION="1.1.0"
 
 readonly INSTALL_ROOT=/mnt
 readonly ANSIBLE_ROOT=/media/ansible-playbooks
-readonly VALID_HOSTS=(THEMIS ASTER YUGEN)
+readonly VALID_HOSTS=(THEMIS ASTER YUGEN KVM)
 
 DRY_RUN=0
 FORCE_HOST=""
@@ -48,28 +48,49 @@ declare -A HOST_ROLE=(
   [THEMIS]=server
   [ASTER]=laptop
   [YUGEN]=pc
+  [KVM]=vm
 )
 
-# NVMe devices (override per host if hardware differs)
-declare -A HOST_NVME0=(
+# Disk0 = BOOT + ROOT; disk1 layout in HOST_DISK1_LAYOUT
+declare -A HOST_DISK0=(
   [THEMIS]=/dev/nvme0
   [ASTER]=/dev/nvme0
   [YUGEN]=/dev/nvme0
+  [KVM]=/dev/vda
 )
-declare -A HOST_NVME1=(
+declare -A HOST_DISK1=(
   [THEMIS]=/dev/nvme1
   [ASTER]=/dev/nvme1
   [YUGEN]=/dev/nvme1
+  [KVM]=/dev/vdb
+)
+
+# nvme = namespace disk (nvme0n1); virt = whole virtio disk (vda)
+declare -A HOST_STORAGE_KIND=(
+  [THEMIS]=nvme
+  [ASTER]=nvme
+  [YUGEN]=nvme
+  [KVM]=virt
+)
+
+# Second disk: docker (/var/lib/docker) or home (/home) — ASTER/KVM use home
+declare -A HOST_DISK1_LAYOUT=(
+  [THEMIS]=docker
+  [ASTER]=home
+  [YUGEN]=docker
+  [KVM]=home
 )
 
 declare -A HOST_KERNEL=(
   [THEMIS]=-tkg-themis
   [ASTER]=-tkg-aster
   [YUGEN]=-tkg-yugen
+  [KVM]=-tkg-themis
 )
 
 declare -A HOST_MCODE=(
   [THEMIS]='mesa lib32-mesa vulkan-intel lib32-vulkan-intel'
+  [KVM]='mesa lib32-mesa vulkan-intel lib32-vulkan-intel'
   [ASTER]='mesa lib32-mesa vulkan-intel lib32-vulkan-intel xorg-server '\
 'lib32-opencl-nvidia-tkg lib32-vulkan-icd-loader lib32-nvidia-utils-tkg '\
 'nvidia-open-dkms-tkg nvidia-settings-tkg opencl-nvidia-tkg vulkan-icd-loader '\
@@ -87,6 +108,7 @@ declare -A HOST_EFI_EXTRA=(
   [THEMIS]=''
   [ASTER]=' mt7925e.disable_aspm=1'
   [YUGEN]=''
+  [KVM]=''
 )
 
 # Intel-specific EFI params (omit on pure-NVIDIA profiles)
@@ -94,6 +116,7 @@ declare -A HOST_EFI_INTEL=(
   [THEMIS]=' enable_guc=3 intel_pstate=passive'
   [ASTER]=' enable_guc=3 intel_pstate=passive'
   [YUGEN]=''
+  [KVM]=''
 )
 
 # Shared pacstrap packages (host kernel, mcode, and headers are added per host)
@@ -122,9 +145,8 @@ readonly F2FS_MNT_OPTS="compress_algorithm=zstd:6,compress_chksum,atgc,gc_merge,
 readonly F2FS_MKFS_OPTS="-O extra_attr,inode_checksum,sb_checksum,compression"
 readonly TIMEZONE="America/El_Salvador"
 
-# THEMIS: USB media partition with offline pacman packages (live ISO, not chroot)
-readonly THEMIS_USB_DEVICE=/dev/sdc3
-readonly THEMIS_USB_MOUNT=/tmp/usb
+# THEMIS: offline pacman repo from git + LFS (live ISO, not chroot)
+readonly THEMIS_BINARIES_REPO=https://github.com/tekne-ops/binaries.git
 readonly THEMIS_BINARIES_ROOT=/tmp/binaries
 
 # ---------------------------------------------------------------------------
@@ -228,7 +250,7 @@ wait_for_network() {
 
 partprobe_host() {
   local host="$1"
-  run partprobe "$(nvme_ns "${HOST_NVME0[$host]}")" "$(nvme_ns "${HOST_NVME1[$host]}")" 2>/dev/null || true
+  run partprobe "$(host_disk_path "$host" 0)" "$(host_disk_path "$host" 1)" 2>/dev/null || true
 }
 
 efi_cmdline_for_host() {
@@ -305,26 +327,48 @@ detect_host() {
 
 validate_host() {
   local host="$1"
-  [[ -n "${HOST_ROLE[$host]:-}" ]] || die "Unknown host '$host'. Valid: THEMIS, ASTER, YUGEN"
+  [[ -n "${HOST_ROLE[$host]:-}" ]] || die "Unknown host '$host'. Valid: ${VALID_HOSTS[*]}"
 }
 
 host_banner() {
   local host="$1"
   log INFO "Profile: $host (${HOST_ROLE[$host]})"
-  log INFO "NVMe0: ${HOST_NVME0[$host]}  NVMe1: ${HOST_NVME1[$host]}"
-  log INFO "Kernel: linux${HOST_KERNEL[$host]}"
+  log INFO "Disk0 (BOOT/ROOT): $(host_disk_path "$host" 0)  Disk1 (${HOST_DISK1_LAYOUT[$host]}): $(host_disk_path "$host" 1)"
+  log INFO "Storage: ${HOST_STORAGE_KIND[$host]} | Kernel: linux${HOST_KERNEL[$host]}"
 }
 
-# Resolve block device names after namespace creation
+# NVMe namespace device (e.g. /dev/nvme0 -> /dev/nvme0n1)
 nvme_ns() {
-  local ctrl="$1"   # e.g. /dev/nvme0
+  local ctrl="$1"
   echo "${ctrl}n1"
 }
 
-nvme_part() {
-  local ctrl="$1"
-  local partnum="$2"
-  echo "$(nvme_ns "$ctrl")p${partnum}"
+# Whole disk path for parted (nvme namespace or virtio disk)
+host_disk_path() {
+  local host="$1" disk_idx="$2"
+  local ctrl
+  if [[ "$disk_idx" == 0 ]]; then
+    ctrl="${HOST_DISK0[$host]}"
+  else
+    ctrl="${HOST_DISK1[$host]}"
+  fi
+  if [[ "${HOST_STORAGE_KIND[$host]}" == nvme ]]; then
+    nvme_ns "$ctrl"
+  else
+    echo "$ctrl"
+  fi
+}
+
+# Partition path (e.g. nvme0n1p1 or vda1)
+host_part_path() {
+  local host="$1" disk_idx="$2" partnum="$3"
+  local disk
+  disk="$(host_disk_path "$host" "$disk_idx")"
+  if [[ "${HOST_STORAGE_KIND[$host]}" == nvme ]]; then
+    echo "${disk}p${partnum}"
+  else
+    echo "${disk}${partnum}"
+  fi
 }
 
 confirm_destroy() {
@@ -332,9 +376,9 @@ confirm_destroy() {
   echo
   echo "================================================================"
   echo "  DESTRUCTIVE INSTALL — host: $host (${HOST_ROLE[$host]})"
-  echo "  This will SECURE-ERASE and repartition ALL data on:"
-  echo "    ${HOST_NVME0[$host]} ($(nvme_ns "${HOST_NVME0[$host]}"))"
-  echo "    ${HOST_NVME1[$host]} ($(nvme_ns "${HOST_NVME1[$host]}"))"
+  echo "  This will SECURE-ERASE (NVMe only) and repartition ALL data on:"
+  echo "    Disk0: $(host_disk_path "$host" 0) (BOOT + ROOT)"
+  echo "    Disk1: $(host_disk_path "$host" 1) (${HOST_DISK1_LAYOUT[$host]})"
   echo "  Kernel package: linux${HOST_KERNEL[$host]}"
   echo "  Microcode/GPU stack: ${HOST_MCODE[$host]}"
   echo "================================================================"
@@ -361,8 +405,14 @@ task_set_ntp() {
 # ---------------------------------------------------------------------------
 task_format_nvme() {
   local host="$1"
-  local ctrl0="${HOST_NVME0[$host]}"
-  local ctrl1="${HOST_NVME1[$host]}"
+  local ctrl0="${HOST_DISK0[$host]}"
+  local ctrl1="${HOST_DISK1[$host]}"
+
+  if [[ "${HOST_STORAGE_KIND[$host]}" == virt ]]; then
+    log INFO "=== Task 1: skip NVMe secure erase (virtio: ${ctrl0}, ${ctrl1}) ==="
+    partprobe_host "$host"
+    return 0
+  fi
 
   log INFO "=== Task 1: NVMe format (ses=2 secure erase) ==="
 
@@ -384,17 +434,18 @@ task_format_nvme() {
 # ---------------------------------------------------------------------------
 task_partition() {
   local host="$1"
-  local disk0
-  local disk1
-  disk0="$(nvme_ns "${HOST_NVME0[$host]}")"
-  disk1="$(nvme_ns "${HOST_NVME1[$host]}")"
+  local disk0 disk1 layout
+  disk0="$(host_disk_path "$host" 0)"
+  disk1="$(host_disk_path "$host" 1)"
+  layout="${HOST_DISK1_LAYOUT[$host]}"
 
   log INFO "=== Task 2: Partition (GPT) ==="
+  log INFO "disk0=$disk0 (BOOT+ROOT) disk1=$disk1 ($layout)"
 
   [[ -b "$disk0" ]] || die "Disk not found: $disk0"
   [[ -b "$disk1" ]] || die "Disk not found: $disk1"
 
-  # nvme0: ESP 0–1%, ROOT f2fs 1–100%
+  # disk0: ESP 0–1%, ROOT f2fs 1–100% (same as ASTER/THEMIS)
   run parted -a optimal "$disk0" --script \
     mklabel gpt \
     mkpart esp 0% 1% \
@@ -404,12 +455,20 @@ task_partition() {
     set 1 esp on \
     print free
 
-  # nvme1: single DOCKER f2fs partition
-  run parted -a optimal "$disk1" --script \
-    mklabel gpt \
-    mkpart f2fs 0% 100% \
-    name 1 DOCKER \
-    print free
+  # disk1: HOME (ASTER, KVM) or DOCKER (THEMIS, YUGEN)
+  if [[ "$layout" == home ]]; then
+    run parted -a optimal "$disk1" --script \
+      mklabel gpt \
+      mkpart f2fs 1% 100% \
+      name 1 HOME \
+      print free
+  else
+    run parted -a optimal "$disk1" --script \
+      mklabel gpt \
+      mkpart f2fs 0% 100% \
+      name 1 DOCKER \
+      print free
+  fi
   partprobe_host "$host"
 }
 
@@ -418,20 +477,26 @@ task_partition() {
 # ---------------------------------------------------------------------------
 task_mkfs() {
   local host="$1"
-  local boot part_root part_docker
+  local boot part_root part_disk1 layout label_disk1
 
-  boot="$(nvme_part "${HOST_NVME0[$host]}" 1)"
-  part_root="$(nvme_part "${HOST_NVME0[$host]}" 2)"
-  part_docker="$(nvme_part "${HOST_NVME1[$host]}" 1)"
+  boot="$(host_part_path "$host" 0 1)"
+  part_root="$(host_part_path "$host" 0 2)"
+  part_disk1="$(host_part_path "$host" 1 1)"
+  layout="${HOST_DISK1_LAYOUT[$host]}"
+  if [[ "$layout" == home ]]; then
+    label_disk1=HOME
+  else
+    label_disk1=DOCKER
+  fi
 
   log INFO "=== Task 3: Create filesystems ==="
-  log INFO "BOOT=$boot ROOT=$part_root DOCKER=$part_docker"
+  log INFO "BOOT=$boot ROOT=$part_root ${label_disk1}=$part_disk1"
 
   run /usr/bin/mkfs.vfat -F32 -n BOOT "$boot"
   # shellcheck disable=SC2086
   run /usr/bin/mkfs.f2fs -l ROOT -i $F2FS_MKFS_OPTS "$part_root"
   # shellcheck disable=SC2086
-  run /usr/bin/mkfs.f2fs -l DOCKER -i $F2FS_MKFS_OPTS "$part_docker"
+  run /usr/bin/mkfs.f2fs -l "$label_disk1" -i $F2FS_MKFS_OPTS "$part_disk1"
 }
 
 # ---------------------------------------------------------------------------
@@ -439,27 +504,37 @@ task_mkfs() {
 # ---------------------------------------------------------------------------
 task_mount() {
   local host="$1"
-  local boot part_root part_docker mnt_root mnt_docker
+  local boot part_root part_disk1 mnt_root mnt_disk1 layout
 
-  boot="$(nvme_part "${HOST_NVME0[$host]}" 1)"
-  part_root="$(nvme_part "${HOST_NVME0[$host]}" 2)"
-  part_docker="$(nvme_part "${HOST_NVME1[$host]}" 1)"
+  boot="$(host_part_path "$host" 0 1)"
+  part_root="$(host_part_path "$host" 0 2)"
+  part_disk1="$(host_part_path "$host" 1 1)"
+  layout="${HOST_DISK1_LAYOUT[$host]}"
   mnt_root="$INSTALL_ROOT"
-  mnt_docker="${INSTALL_ROOT}/var/lib/docker"
+  if [[ "$layout" == home ]]; then
+    mnt_disk1="${INSTALL_ROOT}/home"
+  else
+    mnt_disk1="${INSTALL_ROOT}/var/lib/docker"
+  fi
 
   log INFO "=== Task 4: Mount filesystems ==="
+  log INFO "ROOT=$part_root -> $mnt_root | disk1 ($layout) -> $mnt_disk1"
 
-  run mkdir -p "$mnt_root" "$mnt_docker"
+  run mkdir -p "$mnt_root" "$mnt_disk1"
 
   run /usr/bin/mount -o "$F2FS_MNT_OPTS" "$part_root" "$mnt_root"
   run mkdir -p "$mnt_root/boot"
+  if [[ "$layout" == home ]]; then
+    run mkdir -p "$mnt_root/home"
+  else
+    run mkdir -p "$mnt_root/var/lib/docker"
+  fi
   run /usr/bin/mount "$boot" "$mnt_root/boot"
-  run mkdir -p "$mnt_docker"
-  run /usr/bin/mount -o "$F2FS_MNT_OPTS" "$part_docker" "$mnt_docker"
+  run /usr/bin/mount -o "$F2FS_MNT_OPTS" "$part_disk1" "$mnt_disk1"
 
   log INFO "Mounted:"
   if (( ! DRY_RUN )); then
-    findmnt -R "$mnt_root" 2>/dev/null || mount | grep -E '^/dev/nvme' || true
+    findmnt -R "$mnt_root" 2>/dev/null || mount | grep -E '^/dev/(nvme|vd)' || true
   fi
 }
 
@@ -491,36 +566,33 @@ task_pacstrap() {
 # Task 6 — fstab, symlinks, hosts, reflector, pacman repos
 # ---------------------------------------------------------------------------
 themis_stage_local_repo() {
-  log INFO "THEMIS: staging local-repo from ${THEMIS_USB_DEVICE}..."
+  log INFO "THEMIS: staging local-repo from ${THEMIS_BINARIES_REPO}..."
 
   if (( DRY_RUN )); then
-    log DRY-RUN "mkdir -p ${THEMIS_USB_MOUNT}"
-    log DRY-RUN "mount ${THEMIS_USB_DEVICE} ${THEMIS_USB_MOUNT}"
-    log DRY-RUN "cp -ra ${THEMIS_USB_MOUNT}/binaries ${THEMIS_BINARIES_ROOT}"
+    log DRY-RUN "pacman -Sy --needed git git-lfs"
+    log DRY-RUN "git clone ${THEMIS_BINARIES_REPO} ${THEMIS_BINARIES_ROOT}"
+    log DRY-RUN "git -C ${THEMIS_BINARIES_ROOT} lfs install"
+    log DRY-RUN "git -C ${THEMIS_BINARIES_ROOT} lfs pull"
     log DRY-RUN "repo-add ${THEMIS_BINARIES_ROOT}/themis/local-repo.db.tar.gz ${THEMIS_BINARIES_ROOT}/themis/*.pkg.tar.zst"
     return 0
   fi
 
-  if [[ ! -b "${THEMIS_USB_DEVICE}" ]]; then
-    log WARN "THEMIS: ${THEMIS_USB_DEVICE} not found; skipping local repo staging"
-    return 0
-  fi
+  wait_for_network
+  run pacman -Sy --needed --noconfirm git git-lfs
 
-  run mkdir -p "${THEMIS_USB_MOUNT}"
-  if mountpoint -q "${THEMIS_USB_MOUNT}"; then
-    log INFO "THEMIS: ${THEMIS_USB_MOUNT} already mounted"
+  if [[ -d "${THEMIS_BINARIES_ROOT}/.git" ]]; then
+    log INFO "THEMIS: refreshing existing clone at ${THEMIS_BINARIES_ROOT}"
+    run git -C "${THEMIS_BINARIES_ROOT}" pull --ff-only
   else
-    run mount "${THEMIS_USB_DEVICE}" "${THEMIS_USB_MOUNT}"
+    run rm -rf "${THEMIS_BINARIES_ROOT}"
+    run git clone "${THEMIS_BINARIES_REPO}" "${THEMIS_BINARIES_ROOT}"
   fi
 
-  if [[ ! -d "${THEMIS_USB_MOUNT}/binaries" ]]; then
-    log WARN "THEMIS: ${THEMIS_USB_MOUNT}/binaries not found; skipping repo-add"
-    return 0
-  fi
+  run git -C "${THEMIS_BINARIES_ROOT}" lfs install
+  run git -C "${THEMIS_BINARIES_ROOT}" lfs pull
 
-  run cp -ra "${THEMIS_USB_MOUNT}/binaries" "${THEMIS_BINARIES_ROOT}"
   if [[ ! -d "${THEMIS_BINARIES_ROOT}/themis" ]]; then
-    log WARN "THEMIS: ${THEMIS_BINARIES_ROOT}/themis missing after copy; skipping repo-add"
+    log WARN "THEMIS: ${THEMIS_BINARIES_ROOT}/themis missing after git lfs pull; skipping repo-add"
     return 0
   fi
 
@@ -538,7 +610,7 @@ append_pacman_repo() {
       section=local-repo
       themis_stage_local_repo
       ;;
-    ASTER|YUGEN) section=tekne ;;
+    ASTER|YUGEN|KVM) section=tekne ;;
     *) die "append_pacman_repo: unhandled host '$host'" ;;
   esac
 
@@ -627,7 +699,7 @@ task_configure_chroot() {
   local mnt="$INSTALL_ROOT"
   local kernel="${HOST_KERNEL[$host]}"
   local boot_disk efi_params
-  boot_disk="$(nvme_ns "${HOST_NVME0[$host]}")"
+  boot_disk="$(host_disk_path "$host" 0)"
   efi_params="$(efi_cmdline_for_host "$host" "$kernel")"
 
   log INFO "=== Task 7: chroot locale, timezone, hostname, EFI boot ==="
@@ -769,9 +841,10 @@ Options:
   -h, --help                 Show this help
 
 Hosts:
-  THEMIS   server
-  ASTER    laptop
-  YUGEN    pc
+  THEMIS   server (nvme0 BOOT/ROOT, nvme1 DOCKER)
+  ASTER    laptop (nvme0 BOOT/ROOT, nvme1 HOME)
+  YUGEN    pc     (nvme0 BOOT/ROOT, nvme1 DOCKER)
+  KVM      vm     (vda BOOT/ROOT, vdb HOME)
 
 If HOST is omitted, detection uses DMI product/board name or hostname.
 
@@ -810,7 +883,7 @@ parse_args() {
         VAULT_PASS_FILE=$1
         ;;
       -h|--help) usage; exit 0 ;;
-      THEMIS|ASTER|YUGEN) FORCE_HOST="$1" ;;
+      THEMIS|ASTER|YUGEN|KVM) FORCE_HOST="$1" ;;
       *) die "Unknown argument: $1 (try --help)" ;;
     esac
     shift
