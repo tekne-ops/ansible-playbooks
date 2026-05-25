@@ -85,7 +85,7 @@ declare -A HOST_KERNEL=(
   [THEMIS]=-tkg-themis
   [ASTER]=-tkg-aster
   [YUGEN]=-tkg-yugen
-  [KVM]=-tkg-themis
+  [KVM]=-zen
 )
 
 declare -A HOST_MCODE=(
@@ -157,7 +157,8 @@ log() {
   local msg
   shift
   msg="[$(date -Iseconds)] [$level] $*"
-  echo "$msg" | tee -a "$LOG_FILE"
+  # stderr so command substitution (e.g. host=$(detect_host KVM)) stays clean
+  echo "$msg" | tee -a "$LOG_FILE" >&2
 }
 
 run() {
