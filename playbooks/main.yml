@@ -1,6 +1,6 @@
 ---
 # Workstation Playbook
-# Runs on ASTER and YUGEN hosts only
+# Runs on ASTER, YUGEN, and KVM hosts (THEMIS: use server playbook / tags)
 #
 # Usage:
 #   ansible-playbook main.yml --ask-vault-pass
@@ -43,11 +43,11 @@
       ansible.builtin.debug:
         msg: "Detected hostname: {{ current_hostname }}"
 
-    - name: Verify hostname is ASTER or YUGEN
+    - name: Verify hostname is ASTER, YUGEN, or KVM
       ansible.builtin.assert:
         that:
-          - current_hostname in ['ASTER', 'YUGEN']
-        fail_msg: "This playbook only runs on ASTER or YUGEN. Current hostname: {{ current_hostname }}"
+          - current_hostname in ['ASTER', 'YUGEN', 'KVM']
+        fail_msg: "This playbook only runs on ASTER, YUGEN, or KVM. Current hostname: {{ current_hostname }}"
         success_msg: "Hostname verified: {{ current_hostname }}"
 
     - name: Set hostname variables for roles
