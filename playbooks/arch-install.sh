@@ -221,6 +221,15 @@ require_chroot_ready() {
   [[ -d "$mnt/etc" ]] || die "Chroot not installed at $mnt — run task_pacstrap first"
 }
 
+# Arch has no /usr/bin/command (coreutils); lookup must run in bash, not via arch-chroot CMD.
+chroot_has_cmd() {
+  local mnt="$1" cmd="$2"
+  if (( DRY_RUN )); then
+    return 0
+  fi
+  chroot_bash "$mnt" "command -v '$cmd' >/dev/null 2>&1"
+}
+
 require_chroot_cmds() {
   local mnt="${1:-$INSTALL_ROOT}"
   local missing=() cmd
@@ -228,7 +237,7 @@ require_chroot_cmds() {
     return 0
   fi
   for cmd in git ansible-playbook ansible-galaxy mkinitcpio locale-gen; do
-    chroot_run "$mnt" command -v "$cmd" &>/dev/null || missing+=("$cmd")
+    chroot_has_cmd "$mnt" "$cmd" || missing+=("$cmd")
   done
   (( ${#missing[@]} == 0 )) || die "Missing commands in chroot: ${missing[*]}"
 }
