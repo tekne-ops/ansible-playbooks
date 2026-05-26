@@ -354,6 +354,14 @@ nvme_ns() {
   echo "${ctrl}n1"
 }
 
+# Controller path is a char device (/dev/nvme0); namespace is block (/dev/nvme0n1).
+nvme_ctrl_exists() {
+  local ctrl="$1"
+  [[ -c "$ctrl" || -b "$ctrl" ]] && return 0
+  [[ -b "$(nvme_ns "$ctrl")" ]] && return 0
+  return 1
+}
+
 # Whole disk path for parted (nvme namespace or virtio disk)
 host_disk_path() {
   local host="$1" disk_idx="$2"
@@ -428,7 +436,7 @@ task_format_nvme() {
   log INFO "=== Task 1: NVMe format (ses=2 secure erase) ==="
 
   for ctrl in "$ctrl0" "$ctrl1"; do
-    [[ -b "$ctrl" ]] || die "Controller not found: $ctrl"
+    nvme_ctrl_exists "$ctrl" || die "NVMe controller not found: $ctrl (expected char device; namespace: $(nvme_ns "$ctrl"))"
     run nvme format "$ctrl" \
       --namespace-id=1 \
       --lbaf=0 \
