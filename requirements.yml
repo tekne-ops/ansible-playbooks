@@ -1,19 +1,7 @@
-
+---
 collections:
-  # From Git tag
-  - name: git+https://github.com/tekne-ops/ansible-collections.git#/tekne/devops
+  # Tekne devops collection (Git tag)
+  - name: >-
+      git+https://github.com/tekne-ops/ansible-collections.git#/tekne/devops
     type: git
     version: main
-
-  # From Git SHA (reproducible dev pin)
-  # - name: git+ssh://git@git.example.com/ansible-collections/namespace.other_collection.git
-    # version: "9e5b0b6"
-
-  # From a release artifact (S3/HTTP) – great for air-gapped or audited installs
-  # - name: namespace.collection_name
-    # source: https://artifacts.example.com/ansible/namespace-collection_name-1.4.0.tar.gz
-    # version: "1.4.0"
-
-  # Public deps (pin versions)
-  # - name: amazon.aws
-    # version: ">=8.0.0,<9.0.0"

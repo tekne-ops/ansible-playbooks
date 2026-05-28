@@ -1,5 +1,5 @@
 ---
 ansible_user: debian
 
-# Debian 13 (trixie): Docker often lags behind new releases; use bookworm suite until trixie is published.
+# Debian 13 (trixie): use bookworm Docker suite until trixie is published.
 k8s_docker_apt_suite: bookworm

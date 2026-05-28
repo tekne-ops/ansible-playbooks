@@ -36,8 +36,10 @@
 
     - name: Set hostname fact
       ansible.builtin.set_fact:
-        current_hostname: "{{ (hostname_file.content | b64decode).strip() | upper }}"
-        current_hostname_raw: "{{ (hostname_file.content | b64decode).strip() }}"
+        current_hostname: >-
+          {{ (hostname_file.content | b64decode).strip() | upper }}
+        current_hostname_raw: >-
+          {{ (hostname_file.content | b64decode).strip() }}
 
     - name: Display detected hostname
       ansible.builtin.debug:
@@ -47,7 +49,9 @@
       ansible.builtin.assert:
         that:
           - current_hostname in ['ASTER', 'YUGEN', 'KVM']
-        fail_msg: "This playbook only runs on ASTER, YUGEN, or KVM. Current hostname: {{ current_hostname }}"
+        fail_msg: >-
+          This playbook only runs on ASTER, YUGEN, or KVM.
+          Current hostname: {{ current_hostname }}
         success_msg: "Hostname verified: {{ current_hostname }}"
 
     - name: Set hostname variables for roles
@@ -99,10 +103,10 @@
 
     - role: tekne.devops.bootstrap
       tags: [bootstrap]
-  
+
     - role: tekne.devops.nftables
       tags: [nftables]
-  
+
     - role: tekne.devops.docker
       tags: [docker-host]
 

@@ -1,8 +1,9 @@
+---
 name: Ansible Lint
 
-on:
+"on":
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
 
 jobs:
