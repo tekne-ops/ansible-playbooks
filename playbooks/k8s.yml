@@ -1,0 +1,16 @@
+---
+# Kubernetes node prerequisites on Debian 13 (kubelet, kubeadm, kubectl, containerd)
+#
+# Usage (from ansible-playbooks/):
+#   ansible-playbook playbooks/k8s.yml -i inventories/k8s/hosts.yml
+#
+# Requires SSH access to k8s-mstr00 and k8s-node* as debian (become/sudo).
+
+- name: Prepare Kubernetes hosts
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: tekne.devops.k8s
+      tags: [k8s]

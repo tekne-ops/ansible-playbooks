@@ -138,7 +138,8 @@ readonly -a PACSTRAP_BASE_PKGS=(
   dbus openbsd-netcat irqbalance schedtool shfmt gsmartcontrol shellcheck bats
   cpupower devtools fakechroot fakeroot tcpdump parted xfsprogs libsmbios fwupd
   pipewire pipewire-alsa pipewire-jack pipewire-pulse wireplumber alsa-utils
-  wmctrl man udisks2 restic
+  wmctrl man udisks2 restic noto-fonts noto-fonts-emoji ttf-dejavu ttf-liberation
+  ttf-ms-win10-auto
 )
 
 # F2FS mount options (all three share the same layout for now)
