@@ -5,7 +5,7 @@
 # Usage (from ansible-playbooks/):
 #   ansible-playbook playbooks/k8s.yml -i inventories/k8s/hosts.yml
 #
-# Requires SSH access to k8s-mstr00 and k8s-node* as debian (become/sudo).
+# Requires SSH access to k8s-mstr00 and k8s-node* as devops (become/sudo).
 
 - name: Prepare Kubernetes hosts
   hosts: k8s_cluster
