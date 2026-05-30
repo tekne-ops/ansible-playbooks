@@ -1,5 +1,5 @@
 ---
-ansible_user: debian
+ansible_user: devops
 
 # Debian 13 (trixie): use bookworm Docker suite until trixie is published.
 k8s_docker_apt_suite: bookworm
