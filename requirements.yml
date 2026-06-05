@@ -1,7 +1,12 @@
 ---
 collections:
-  # Tekne devops collection (Git tag)
-  - name: >-
-      git+https://github.com/tekne-ops/ansible-collections.git#/tekne/devops
-    type: git
-    version: main
+  # Local monorepo (editable source under ../ansible-collections/tekne/devops)
+  - name: tekne.devops
+    type: dir
+    source: ../ansible-collections/tekne/devops
+
+  # Remote Git (use instead of dir for CI / fresh clone without local collection tree)
+  # - name: >-
+  #     git+https://github.com/tekne-ops/ansible-collections.git#/tekne/devops
+  #   type: git
+  #   version: main
