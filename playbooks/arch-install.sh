@@ -115,7 +115,7 @@ declare -A HOST_EFI_EXTRA=(
 # Intel-specific EFI params (omit on pure-NVIDIA profiles)
 declare -A HOST_EFI_INTEL=(
   [THEMIS]=' enable_guc=3 intel_pstate=passive'
-  [ASTER]=' enable_guc=3 intel_pstate=passive'
+  [ASTER]=''
   [YUGEN]=''
   [KVM]=''
 )
@@ -145,6 +145,8 @@ readonly -a PACSTRAP_BASE_PKGS=(
 # F2FS mount options (all three share the same layout for now)
 readonly F2FS_MNT_OPTS="compress_algorithm=zstd:6,compress_chksum,atgc,gc_merge,lazytime"
 readonly F2FS_MKFS_OPTS="-O extra_attr,inode_checksum,sb_checksum,compression"
+# Fixed ESP size — UKI embeds kernel + initramfs + microcode (~100–200 MiB per image).
+readonly ESP_SIZE_MIB=1024
 readonly TIMEZONE="America/El_Salvador"
 
 # THEMIS: offline pacman repo from git + LFS (live ISO, not chroot)
@@ -263,17 +265,6 @@ wait_for_network() {
 partprobe_host() {
   local host="$1"
   run partprobe "$(host_disk_path "$host" 0)" "$(host_disk_path "$host" 1)" 2>/dev/null || true
-}
-
-efi_cmdline_for_host() {
-  local host="$1" kernel="$2"
-  local line
-  line=" root=LABEL=ROOT rw initrd=\\intel-ucode.img initrd=\\initramfs-linux${kernel}.img"
-  line+=" kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off"
-  line+=" quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2"
-  line+="${HOST_EFI_INTEL[$host]:-}"
-  line+="${HOST_EFI_EXTRA[$host]:-}"
-  printf '%s' "$line"
 }
 
 host_slug() {
@@ -480,7 +471,9 @@ task_format_nvme() {
   log INFO "=== Task 1: NVMe format (ses=2 secure erase) ==="
 
   for ctrl in "$ctrl0" "$ctrl1"; do
-    nvme_ctrl_exists "$ctrl" || die "NVMe controller not found: $ctrl (expected char device; namespace: $(nvme_ns "$ctrl"))"
+    if (( ! DRY_RUN )); then
+      nvme_ctrl_exists "$ctrl" || die "NVMe controller not found: $ctrl (expected char device; namespace: $(nvme_ns "$ctrl"))"
+    fi
     run nvme format "$ctrl" \
       --namespace-id=1 \
       --lbaf=0 \
@@ -505,14 +498,16 @@ task_partition() {
   log INFO "=== Task 2: Partition (GPT) ==="
   log INFO "disk0=$disk0 (BOOT+ROOT) disk1=$disk1 ($layout)"
 
-  [[ -b "$disk0" ]] || die "Disk not found: $disk0"
-  [[ -b "$disk1" ]] || die "Disk not found: $disk1"
+  if (( ! DRY_RUN )); then
+    [[ -b "$disk0" ]] || die "Disk not found: $disk0"
+    [[ -b "$disk1" ]] || die "Disk not found: $disk1"
+  fi
 
-  # disk0: ESP 0–1%, ROOT f2fs 1–100% (same as ASTER/THEMIS)
+  # disk0: ESP (fixed ${ESP_SIZE_MIB} MiB for UKI), ROOT f2fs remainder
   run parted -a optimal "$disk0" --script \
     mklabel gpt \
-    mkpart esp 0% 1% \
-    mkpart f2fs 1% 100% \
+    mkpart esp 1MiB "${ESP_SIZE_MIB}MiB" \
+    mkpart f2fs "${ESP_SIZE_MIB}MiB" 100% \
     name 1 BOOT \
     name 2 ROOT \
     set 1 esp on \
@@ -801,7 +796,7 @@ task_configure_chroot() {
   chroot_run "$mnt" locale-gen
   chroot_bash "$mnt" "echo 'LANG=en_US.UTF-8' > /etc/locale.conf"
   chroot_bash "$mnt" "echo 'KEYMAP=us' > /etc/vconsole.conf"
-  chroot_bash "$mnt" "echo '127.0.0.1 localhost ${host}.tekne.sv ${host}' >> /etc/hosts"
+  chroot_bash "$mnt" "grep -qF '${host}.tekne.sv' /etc/hosts || echo '127.0.0.1 localhost ${host}.tekne.sv ${host}' >> /etc/hosts"
   chroot_bash "$mnt" "echo '${host}' > /etc/hostname"
 
   if [[ "$host" == ASTER ]]; then
@@ -822,8 +817,9 @@ task_configure_chroot() {
     log DRY-RUN "mkdir -p $mnt/boot/EFI/Linux $mnt/etc/kernel"
     log DRY-RUN "write $mnt/etc/kernel/uki.conf (Output=/boot/EFI/Linux/${uki_name})"
     log DRY-RUN "ukify build --config /etc/kernel/uki.conf (in chroot)"
-    log DRY-RUN "efibootmgr --loader \\EFI\\Linux\\${uki_name}"
-    log DRY-RUN "write $mnt/etc/pacman.d/hooks/90-uki.hook (Target=${kernel_pkg})"
+    log DRY-RUN "efibootmgr -B (delete all boot entries)"
+    log DRY-RUN "efibootmgr --disk $boot_disk --part 1 --create --label BOOT --loader \\EFI\\Linux\\${uki_name}"
+    log DRY-RUN "write $mnt/etc/pacman.d/hooks/90-uki.hook (Target=${kernel_pkg}, intel-ucode)"
   else
     root_uuid="$(root_fs_uuid_from_fstab "$mnt" "$host")"
     uki_cmdline="$(uki_cmdline_for_host "$host" "$root_uuid")"
@@ -835,12 +831,10 @@ task_configure_chroot() {
 # Where final EFI binary goes
 Output=/boot/EFI/Linux/${uki_name}
 
-# Kernel + initramfs
+# Kernel + initrds (microcode must precede main initramfs)
 Kernel=/boot/vmlinuz-${kernel_pkg}
-Initrd=/boot/initramfs-${kernel_pkg}.img
-
-# Microcode (important)
 Initrd=/boot/intel-ucode.img
+Initrd=/boot/initramfs-${kernel_pkg}.img
 
 # Kernel command line
 Cmdline=${uki_cmdline}
@@ -854,7 +848,7 @@ EOF
 
     chroot_run "$mnt" ukify build --config /etc/kernel/uki.conf
 
-    chroot_bash "$mnt" 'efibootmgr -B -b 0 2>/dev/null || true'
+    chroot_bash "$mnt" 'efibootmgr -B 2>/dev/null || true'
     chroot_run "$mnt" efibootmgr \
       --disk "$boot_disk" \
       --part 1 \
@@ -869,6 +863,7 @@ Type = Package
 Operation = Install
 Operation = Upgrade
 Target = ${kernel_pkg}
+Target = intel-ucode
 
 [Action]
 Description = Rebuilding Unified Kernel Image...
