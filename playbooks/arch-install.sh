@@ -139,7 +139,7 @@ readonly -a PACSTRAP_BASE_PKGS=(
   cpupower devtools fakechroot fakeroot tcpdump parted xfsprogs libsmbios fwupd
   pipewire pipewire-alsa pipewire-jack pipewire-pulse wireplumber alsa-utils
   wmctrl man udisks2 restic noto-fonts noto-fonts-emoji ttf-dejavu ttf-liberation
-  ttf-ms-win10-auto
+  ttf-ms-win10-auto systemd ukify
 )
 
 # F2FS mount options (all three share the same layout for now)
@@ -271,6 +271,49 @@ efi_cmdline_for_host() {
   line=" root=LABEL=ROOT rw initrd=\\intel-ucode.img initrd=\\initramfs-linux${kernel}.img"
   line+=" kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off"
   line+=" quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2"
+  line+="${HOST_EFI_INTEL[$host]:-}"
+  line+="${HOST_EFI_EXTRA[$host]:-}"
+  printf '%s' "$line"
+}
+
+host_slug() {
+  echo "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+# Root UUID for UKI Cmdline=root=UUID=… (fstab first, then blkid on ROOT partition).
+root_fs_uuid_from_fstab() {
+  local mnt="$1" host="$2"
+  local fstab="$mnt/etc/fstab" line fs mountpoint uuid
+
+  [[ -f "$fstab" ]] || die "fstab not found at $fstab"
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line//[[:space:]]/}" ]] && continue
+    read -r fs mountpoint _ <<< "$line"
+    if [[ "$mountpoint" == / ]]; then
+      if [[ "$fs" == UUID=* ]]; then
+        echo "${fs#UUID=}"
+        return 0
+      fi
+      if [[ "$fs" == LABEL=ROOT ]]; then
+        uuid="$(blkid -s UUID -o value -t LABEL=ROOT 2>/dev/null || true)"
+        [[ -n "$uuid" ]] && { echo "$uuid"; return 0; }
+      fi
+    fi
+  done < "$fstab"
+
+  uuid="$(blkid -s UUID -o value "$(host_part_path "$host" 0 2)" 2>/dev/null || true)"
+  [[ -n "$uuid" ]] || die "Could not determine root filesystem UUID"
+  echo "$uuid"
+}
+
+# Kernel cmdline embedded in the UKI (initrds are bundled; no initrd= paths).
+uki_cmdline_for_host() {
+  local host="$1" root_uuid="$2"
+  local line
+  line="root=UUID=${root_uuid} rw quiet loglevel=3"
+  line+=" kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off"
+  line+=" systemd.show_status=false rd.udev.log_level=2"
   line+="${HOST_EFI_INTEL[$host]:-}"
   line+="${HOST_EFI_EXTRA[$host]:-}"
   printf '%s' "$line"
@@ -735,18 +778,20 @@ task_configure_base() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 8 — locale, timezone, hostname, EFI boot, initramfs (arch-chroot)
+# Task 8 — locale, timezone, hostname, UKI boot, initramfs (arch-chroot)
 # ---------------------------------------------------------------------------
 task_configure_chroot() {
   local host="$1"
   local mnt="$INSTALL_ROOT"
   local kernel="${HOST_KERNEL[$host]}"
-  local boot_disk efi_params
+  local kernel_pkg host_slug uki_name boot_disk root_uuid uki_cmdline
+  kernel_pkg="linux${kernel}"
+  host_slug="$(host_slug "$host")"
+  uki_name="${host_slug}-linux.efi"
   boot_disk="$(host_disk_path "$host" 0)"
-  efi_params="$(efi_cmdline_for_host "$host" "$kernel")"
 
-  log INFO "=== Task 8: chroot locale, timezone, hostname, EFI boot ==="
-  log INFO "boot_disk=$boot_disk kernel=linux${kernel}"
+  log INFO "=== Task 8: chroot locale, timezone, hostname, UKI boot ==="
+  log INFO "boot_disk=$boot_disk kernel=${kernel_pkg} uki=${uki_name}"
 
   require_chroot_ready "$mnt"
 
@@ -769,18 +814,68 @@ task_configure_chroot() {
     fi
   fi
 
-  log INFO "Configuring EFI boot entry..."
-  chroot_bash "$mnt" 'efibootmgr -B -b 0 2>/dev/null || true'
-  chroot_run "$mnt" efibootmgr \
-    --disk "$boot_disk" \
-    --part 1 \
-    --create \
-    --label BOOT \
-    --loader "/vmlinuz-linux${kernel}" \
-    --unicode "$efi_params"
+  log INFO "Generating initramfs (${kernel_pkg})..."
+  chroot_run "$mnt" mkinitcpio -p "${kernel_pkg}"
 
-  log INFO "Generating initramfs (linux${kernel})..."
-  chroot_run "$mnt" mkinitcpio -p "linux${kernel}"
+  log INFO "Configuring UKI boot (${uki_name})..."
+  if (( DRY_RUN )); then
+    log DRY-RUN "mkdir -p $mnt/boot/EFI/Linux $mnt/etc/kernel"
+    log DRY-RUN "write $mnt/etc/kernel/uki.conf (Output=/boot/EFI/Linux/${uki_name})"
+    log DRY-RUN "ukify build --config /etc/kernel/uki.conf (in chroot)"
+    log DRY-RUN "efibootmgr --loader \\EFI\\Linux\\${uki_name}"
+    log DRY-RUN "write $mnt/etc/pacman.d/hooks/90-uki.hook (Target=${kernel_pkg})"
+  else
+    root_uuid="$(root_fs_uuid_from_fstab "$mnt" "$host")"
+    uki_cmdline="$(uki_cmdline_for_host "$host" "$root_uuid")"
+
+    run mkdir -p "$mnt/boot/EFI/Linux" "$mnt/etc/kernel"
+
+    cat > "$mnt/etc/kernel/uki.conf" <<EOF
+[UKI]
+# Where final EFI binary goes
+Output=/boot/EFI/Linux/${uki_name}
+
+# Kernel + initramfs
+Kernel=/boot/vmlinuz-${kernel_pkg}
+Initrd=/boot/initramfs-${kernel_pkg}.img
+
+# Microcode (important)
+Initrd=/boot/intel-ucode.img
+
+# Kernel command line
+Cmdline=${uki_cmdline}
+
+# OS metadata
+OSRelease=@/etc/os-release
+
+# Optional splash
+Splash=/usr/share/systemd/bootctl/splash-arch.bmp
+EOF
+
+    chroot_run "$mnt" ukify build --config /etc/kernel/uki.conf
+
+    chroot_bash "$mnt" 'efibootmgr -B -b 0 2>/dev/null || true'
+    chroot_run "$mnt" efibootmgr \
+      --disk "$boot_disk" \
+      --part 1 \
+      --create \
+      --label BOOT \
+      --loader "\\EFI\\Linux\\${uki_name}"
+
+    run mkdir -p "$mnt/etc/pacman.d/hooks"
+    cat > "$mnt/etc/pacman.d/hooks/90-uki.hook" <<EOF
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = ${kernel_pkg}
+
+[Action]
+Description = Rebuilding Unified Kernel Image...
+When = PostTransaction
+Exec = /usr/bin/ukify build --config /etc/kernel/uki.conf
+EOF
+  fi
 
   log INFO "Reloading systemd units..."
   run systemctl daemon-reload
@@ -900,7 +995,7 @@ Pipeline tasks (use --from-task N):
   5  live pacman repos (THEMIS local-repo / tekne), reflector, pacman -Syy
   6  pacstrap
   7  fstab, pacman.conf copy, symlinks
-  8  chroot locale, EFI, mkinitcpio, THEMIS cache binds
+  8  chroot locale, UKI boot, mkinitcpio, THEMIS cache binds
   9  ansible-playbooks (xfce4 on ASTER, YUGEN, KVM)
 EOF
 }
