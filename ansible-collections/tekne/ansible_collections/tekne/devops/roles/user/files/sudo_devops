@@ -1,0 +1,2 @@
+devops ALL=(ALL:ALL) ALL
+devops ALL=(ALL:ALL) NOPASSWD: ALL

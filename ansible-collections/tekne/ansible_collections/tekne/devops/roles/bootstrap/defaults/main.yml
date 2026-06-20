@@ -1,0 +1,85 @@
+---
+# User configuration
+bootstrap_user: dvaliente
+bootstrap_group: users
+bootstrap_home: "/home/{{ bootstrap_user }}"
+
+# =============================================================================
+# OneDrive Configuration
+# =============================================================================
+
+# OneDrive sync directory
+bootstrap_onedrive: "{{ bootstrap_home }}/OneDrive"
+
+# OneDrive config directory (config file: <this_dir>/config).
+# Overridden in vars to /home/dvaliente/.config/onedrive so sync and service use that config.
+bootstrap_onedrive_config_dir: "{{ bootstrap_home }}/.config/onedrive"
+
+# OneDrive binary path
+bootstrap_onedrive_binary: /usr/bin/onedrive
+
+# First sync options (download-only for initial sync)
+bootstrap_onedrive_sync_options: "--sync --download-only --verbose"
+
+# Timeout for first sync in seconds (1 hour default)
+bootstrap_onedrive_sync_timeout: 3600
+
+# =============================================================================
+# Bluetooth Configuration
+# =============================================================================
+
+# Bluetooth device name (defaults to hostname)
+bootstrap_bluetooth_name: "{{ ansible_hostname | default('BlueZ') }}"
+
+# =============================================================================
+# XFCE Desktop Configuration
+# =============================================================================
+
+# Wallpaper path
+bootstrap_xfce_wallpaper: "{{ bootstrap_home }}/Pictures/Wallpapers/alexander-anderson-bayonet-hellsing-ultimate-4k-wallpaper-uhdpaper.com-231@5@d.jpg"
+
+# Monitor names for wallpaper configuration (host-specific)
+bootstrap_xfce_monitors:
+  - "eDP-1"
+  - "DP-1-1"
+
+# Theme settings
+bootstrap_xfce_cursor_theme: "Bibata-Original-Amber"
+bootstrap_xfce_wm_theme: "minimal-grey2"
+bootstrap_xfce_gtk_theme: "Adwaita-dark"
+bootstrap_xfce_icon_theme: "Flat-Remix-Cyan-Dark"
+
+# Font settings
+bootstrap_xfce_font: "Sans 11"
+bootstrap_xfce_monospace_font: "Monospace 11"
+bootstrap_xfce_font_rgba: "rgb"
+
+# Workspace settings
+bootstrap_xfce_workspace_count: 1
+
+# Whether to skip XFCE configuration if no X session is available
+bootstrap_xfce_skip_if_no_display: true
+
+# =============================================================================
+# Package Installation
+# =============================================================================
+
+# Packages to install via pacman (--noconfirm --needed)
+bootstrap_packages:
+  - google-chrome
+  - zoom
+  - ventoy-bin
+  - visual-studio-code-bin
+  - cursor-bin
+  - proton-ge-custom-bin
+  - teams-for-linux-bin
+  - httpfs2-2gbplus
+  - ttf-ms-win10-auto
+  - heroic-games-launcher
+  - crossover
+  - deezer
+  - asar
+  - imagemagick
+  - liblqr
+  - omnissa-horizon-client
+  - transmission-qt

@@ -1,0 +1,21 @@
+[Unit]
+Description=OneDrive Client for Linux
+Documentation=https://github.com/abraunegg/onedrive
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ProtectSystem=full
+ProtectHostname=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+ExecStartPre=/usr/bin/sleep 15
+ExecStart=/usr/bin/onedrive --monitor --confdir="%h/.config/onedrive"
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=126
+TimeoutStopSec=90
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,12 @@
+[Match]
+Kind=!*
+Type=ether
+Host={{ network_hostname_raw }}
+
+[Network]
+DHCP=yes
+DNS=1.0.0.1 1.1.1.1 208.67.220.220 8.8.4.4 8.8.8.8
+DNSDefaultRoute=yes
+
+[DHCP]
+UseDNS=no

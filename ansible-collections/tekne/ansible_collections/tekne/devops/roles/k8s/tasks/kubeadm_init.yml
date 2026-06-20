@@ -1,0 +1,164 @@
+# SPDX-License-Identifier: MIT-0
+---
+# Initialize Kubernetes control plane (master only).
+
+- name: Check if control plane is already initialized
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: k8s_admin_conf
+  tags:
+    - k8s
+    - k8s-kubeadm
+
+- name: Initialize Kubernetes control plane with kubeadm
+  ansible.builtin.command:
+    cmd: kubeadm init --pod-network-cidr=192.168.0.0/16
+  register: k8s_kubeadm_init
+  when: not k8s_admin_conf.stat.exists
+  tags:
+    - k8s
+    - k8s-kubeadm
+
+- name: Get kubeadm join command when cluster already exists
+  ansible.builtin.command:
+    cmd: kubeadm token create --print-join-command
+  register: k8s_kubeadm_join_cmd
+  changed_when: false
+  when: k8s_admin_conf.stat.exists
+  tags:
+    - k8s
+    - k8s-kubeadm
+
+- name: Get kubeadm join command after fresh init
+  ansible.builtin.command:
+    cmd: kubeadm token create --print-join-command
+  register: k8s_kubeadm_join_cmd_after_init
+  changed_when: false
+  when:
+    - k8s_kubeadm_init is defined
+    - not (k8s_kubeadm_init.skipped | default(false))
+    - k8s_kubeadm_init.rc == 0
+  tags:
+    - k8s
+    - k8s-kubeadm
+
+- name: Set kubeadm join command output
+  ansible.builtin.set_fact:
+    k8s_kubeadm_join_output: >-
+      {{
+        [
+          k8s_kubeadm_join_cmd_after_init.stdout | default(''),
+          k8s_kubeadm_join_cmd.stdout | default(''),
+          (k8s_kubeadm_init.stdout | default('')) ~ (k8s_kubeadm_init.stderr | default(''))
+        ] | map('trim') | reject('equalto', '') | first | default('')
+      }}
+  when: inventory_hostname in groups.get('k8s_control_plane', [k8s_master_host])
+  tags:
+    - k8s
+    - k8s-kubeadm
+
+- name: Extract kubeadm join token and discovery hash
+  ansible.builtin.set_fact:
+    k8s_kubeadm_join_token: >-
+      {{ k8s_kubeadm_join_output.split('--token ')[1].split()[0]
+         if '--token ' in k8s_kubeadm_join_output else '' }}
+    k8s_kubeadm_discovery_token_ca_cert_hash: >-
+      {{ k8s_kubeadm_join_output.split('--discovery-token-ca-cert-hash ')[1].split()[0]
+         if '--discovery-token-ca-cert-hash ' in k8s_kubeadm_join_output else '' }}
+    cacheable: true
+  when:
+    - inventory_hostname in groups.get('k8s_control_plane', [k8s_master_host])
+    - k8s_kubeadm_join_output | length > 0
+  tags:
+    - k8s
+    - k8s-kubeadm
+
+- name: Verify kubeadm join token and hash were captured
+  ansible.builtin.assert:
+    that:
+      - k8s_kubeadm_join_token | length > 0
+      - k8s_kubeadm_discovery_token_ca_cert_hash | length > 0
+    fail_msg: >-
+      Could not parse kubeadm join token/hash from output:
+      {{ k8s_kubeadm_join_output }}
+  when:
+    - inventory_hostname in groups.get('k8s_control_plane', [k8s_master_host])
+    - k8s_kubeadm_join_output | length > 0
+  tags:
+    - k8s
+    - k8s-kubeadm
+
+- name: Persist kubeadm join values on control plane for later node joins
+  ansible.builtin.copy:
+    dest: "{{ k8s_kubeadm_join_facts_path }}"
+    mode: "0600"
+    content: |
+      k8s_kubeadm_join_token: {{ k8s_kubeadm_join_token }}
+      k8s_kubeadm_discovery_token_ca_cert_hash: {{ k8s_kubeadm_discovery_token_ca_cert_hash }}
+  when:
+    - inventory_hostname in groups.get('k8s_control_plane', [k8s_master_host])
+    - k8s_kubeadm_join_token | default('') | length > 0
+    - k8s_kubeadm_discovery_token_ca_cert_hash | default('') | length > 0
+  tags:
+    - k8s
+    - k8s-kubeadm
+
+- name: Verify control plane admin kubeconfig exists
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: k8s_admin_conf_final
+  when: inventory_hostname in groups.get('k8s_control_plane', [k8s_master_host])
+  tags:
+    - k8s
+    - k8s-kubeadm
+    - k8s-kubeconfig
+
+- name: Look up kubeconfig user home directory
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ k8s_kube_config_user }}"
+  register: k8s_kube_config_passwd
+  when: inventory_hostname in groups.get('k8s_control_plane', [k8s_master_host])
+  tags:
+    - k8s
+    - k8s-kubeadm
+    - k8s-kubeconfig
+
+- name: Set kubeconfig user home path
+  ansible.builtin.set_fact:
+    k8s_kube_config_home: "{{ k8s_kube_config_passwd.ansible_facts.getent_passwd[k8s_kube_config_user][4] }}"
+  when: inventory_hostname in groups.get('k8s_control_plane', [k8s_master_host])
+  tags:
+    - k8s
+    - k8s-kubeadm
+    - k8s-kubeconfig
+
+- name: Create kubeconfig directory for control plane user
+  ansible.builtin.file:
+    path: "{{ k8s_kube_config_home }}/.kube"
+    state: directory
+    owner: "{{ k8s_kube_config_user }}"
+    group: "{{ k8s_kube_config_user }}"
+    mode: "0700"
+  when: inventory_hostname in groups.get('k8s_control_plane', [k8s_master_host])
+  tags:
+    - k8s
+    - k8s-kubeadm
+    - k8s-kubeconfig
+
+- name: Install admin kubeconfig for control plane user
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ k8s_kube_config_home }}/.kube/config"
+    remote_src: true
+    owner: "{{ k8s_kube_config_user }}"
+    group: "{{ k8s_kube_config_user }}"
+    mode: "0600"
+    force: false
+  when:
+    - inventory_hostname in groups.get('k8s_control_plane', [k8s_master_host])
+    - k8s_admin_conf_final.stat.exists
+  tags:
+    - k8s
+    - k8s-kubeadm
+    - k8s-kubeconfig

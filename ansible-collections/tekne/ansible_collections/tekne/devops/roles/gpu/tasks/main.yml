@@ -1,0 +1,128 @@
+# SPDX-License-Identifier: MIT-0
+---
+# tasks file for ./ansible-role-gpu
+
+# =============================================================================
+# Network Connectivity Check
+# =============================================================================
+
+- name: Wait for network connectivity before package installation
+  ansible.builtin.command:
+    cmd: ping -c 1 -W 2 archlinux.org
+  register: network_check
+  until: network_check.rc == 0
+  retries: 30
+  delay: 2
+  changed_when: false
+  tags:
+    - gpu
+    - network
+    - packages
+
+# =============================================================================
+# GPU Driver Installation
+# =============================================================================
+
+- name: Set effective hostname for GPU role
+  ansible.builtin.set_fact:
+    gpu_effective_hostname: "{{ (hostname | default(cached_hostname | default(ansible_hostname))) | upper }}"
+  tags:
+    - gpu
+    - config
+    - packages
+    - nvidia
+    - intel
+    - verify
+
+- name: Set GPU type and package list based on hostname
+  ansible.builtin.set_fact:
+    gpu_type: "{{ 'nvidia' if gpu_effective_hostname in gpu_nvidia_hostnames else 'intel' }}"
+    gpu_packages: "{{ gpu_nvidia_packages if gpu_effective_hostname in gpu_nvidia_hostnames else gpu_intel_packages }}"
+  tags:
+    - gpu
+    - config
+    - packages
+    - nvidia
+    - intel
+    - verify
+
+- name: Display GPU configuration
+  ansible.builtin.debug:
+    msg: "Host: {{ gpu_effective_hostname }} | GPU Type: {{ gpu_type }} | Packages: {{ gpu_packages | length }}"
+  tags:
+    - gpu
+    - config
+
+# =============================================================================
+# NVIDIA Installation (ASTER, YUGEN)
+# =============================================================================
+
+- name: Install NVIDIA packages
+  community.general.pacman:
+    name: "{{ gpu_nvidia_packages }}"
+    state: present
+    extra_args: '--noconfirm --needed'
+  register: nvidia_install_result
+  when: gpu_type == 'nvidia'
+  tags:
+    - gpu
+    - nvidia
+    - packages
+
+# =============================================================================
+# Intel/Mesa Installation (THEMIS, KVM, …)
+# =============================================================================
+
+- name: Install Intel/Mesa packages
+  community.general.pacman:
+    name: "{{ gpu_intel_packages }}"
+    state: present
+    extra_args: '--noconfirm --needed'
+  register: intel_install_result
+  when: gpu_type == 'intel'
+  tags:
+    - gpu
+    - intel
+    - packages
+
+# =============================================================================
+# Verification
+# =============================================================================
+
+- name: Verify NVIDIA packages are installed
+  ansible.builtin.command:
+    cmd: "pacman -Q {{ item }}"
+  loop: "{{ gpu_nvidia_packages }}"
+  register: nvidia_package_verify
+  changed_when: false
+  failed_when: nvidia_package_verify.rc != 0
+  when: gpu_type == 'nvidia'
+  tags:
+    - gpu
+    - verify
+    - nvidia
+
+- name: Verify Intel/Mesa packages are installed
+  ansible.builtin.command:
+    cmd: "pacman -Q {{ item }}"
+  loop: "{{ gpu_intel_packages }}"
+  register: intel_package_verify
+  changed_when: false
+  failed_when: intel_package_verify.rc != 0
+  when: gpu_type == 'intel'
+  tags:
+    - gpu
+    - verify
+    - intel
+
+- name: Display GPU installation summary
+  ansible.builtin.debug:
+    msg: |
+      GPU Installation Summary for {{ gpu_effective_hostname }}:
+      =============================================
+      GPU Type: {{ gpu_type | upper }}
+      Packages installed: {{ gpu_packages | join(', ') }}
+      Installation successful: {{ (nvidia_install_result is success) if gpu_type == 'nvidia' else (intel_install_result is success) }}
+  tags:
+    - gpu
+    - verify

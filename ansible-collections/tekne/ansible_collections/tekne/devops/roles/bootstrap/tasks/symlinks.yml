@@ -1,0 +1,98 @@
+---
+# ============================================
+# SYMBOLIC LINKS TASKS
+# ============================================
+
+- name: Ensure parent directories exist for symlinks
+  become: true
+  ansible.builtin.file:
+    path: "{{ item.dest | dirname }}"
+    state: directory
+    owner: "{{ bootstrap_user }}"
+    group: "{{ bootstrap_group }}"
+    mode: '0755'
+  loop: "{{ bootstrap_symlinks }}"
+  loop_control:
+    label: "{{ item.dest | dirname }}"
+  tags: [bootstrap, symlinks]
+
+- name: Check if symlink sources exist
+  become: true
+  become_user: "{{ bootstrap_user }}"
+  ansible.builtin.stat:
+    path: "{{ item.src }}"
+  loop: "{{ bootstrap_symlinks }}"
+  loop_control:
+    label: "{{ item.src | basename }}"
+  register: symlink_sources
+  tags: [bootstrap, symlinks]
+
+- name: Create symbolic links (only if source exists)
+  become: true
+  ansible.builtin.file:
+    src: "{{ item.item.src }}"
+    dest: "{{ item.item.dest }}"
+    state: link
+    owner: "{{ bootstrap_user }}"
+    group: "{{ bootstrap_group }}"
+    force: true
+  loop: "{{ symlink_sources.results }}"
+  loop_control:
+    label: "{{ item.item.dest | basename }}"
+  when: item.stat.exists
+  tags: [bootstrap, symlinks]
+
+- name: Warn about missing symlink sources
+  ansible.builtin.debug:
+    msg: "WARNING: Source does not exist, skipping symlink: {{ item.item.src }}"
+  loop: "{{ symlink_sources.results }}"
+  loop_control:
+    label: "{{ item.item.src | basename }}"
+  when: not item.stat.exists
+  tags: [bootstrap, symlinks]
+
+# ============================================
+# SSH KEY PERMISSIONS
+# ============================================
+
+- name: Set correct permissions on SSH directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ bootstrap_home }}/.ssh"
+    state: directory
+    owner: "{{ bootstrap_user }}"
+    group: "{{ bootstrap_group }}"
+    mode: '0700'
+  tags: [bootstrap, symlinks, ssh]
+
+- name: Check if SSH key source files exist
+  become: true
+  become_user: "{{ bootstrap_user }}"
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop: "{{ bootstrap_ssh_keys }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  register: ssh_key_sources
+  tags: [bootstrap, symlinks, ssh]
+
+- name: Set correct permissions on SSH key source files
+  become: true
+  ansible.builtin.file:
+    path: "{{ item.item.path }}"
+    owner: "{{ bootstrap_user }}"
+    group: "{{ bootstrap_group }}"
+    mode: "{{ item.item.mode }}"
+  loop: "{{ ssh_key_sources.results }}"
+  loop_control:
+    label: "{{ item.item.path | basename }}"
+  when: item.stat.exists
+  tags: [bootstrap, symlinks, ssh]
+
+- name: Display symlinks summary
+  ansible.builtin.debug:
+    msg:
+      - "Symlinks processed: {{ bootstrap_symlinks | length }}"
+      - "Created: {{ symlink_sources.results | selectattr('stat.exists') | list | length }}"
+      - "Skipped (source missing): {{ symlink_sources.results | rejectattr('stat.exists') | list | length }}"
+  tags: [bootstrap, symlinks]

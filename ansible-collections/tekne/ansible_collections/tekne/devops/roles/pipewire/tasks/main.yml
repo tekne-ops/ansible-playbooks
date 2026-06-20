@@ -1,0 +1,97 @@
+# SPDX-License-Identifier: MIT-0
+---
+- name: Get user info for home directories
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ item.name }}"
+  loop: "{{ users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: user_info
+  tags:
+    - pipewire
+    - config
+
+- name: Create ~/.config/pipewire/pipewire.conf.d for each user
+  ansible.builtin.file:
+    path: "{{ item.ansible_facts.getent_passwd[item.item.name][4] }}/.config/pipewire/pipewire.conf.d"
+    state: directory
+    owner: "{{ item.item.name }}"
+    group: "{{ item.item.group | default(default_group) }}"
+    mode: '0755'
+  loop: "{{ user_info.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - pipewire
+    - config
+
+- name: Create ~/.config/wireplumber/wireplumber.conf.d for each user
+  ansible.builtin.file:
+    path: "{{ item.ansible_facts.getent_passwd[item.item.name][4] }}/.config/wireplumber/wireplumber.conf.d"
+    state: directory
+    owner: "{{ item.item.name }}"
+    group: "{{ item.item.group | default(default_group) }}"
+    mode: '0755'
+  loop: "{{ user_info.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - pipewire
+    - config
+
+- name: Copy pipewire.conf to 99-audio-quality.conf
+  ansible.builtin.copy:
+    src: pipewire.conf
+    dest: "{{ item.ansible_facts.getent_passwd[item.item.name][4] }}/.config/pipewire/pipewire.conf.d/99-audio-quality.conf"
+    owner: "{{ item.item.name }}"
+    group: "{{ item.item.group | default(default_group) }}"
+    mode: '0644'
+  loop: "{{ user_info.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - pipewire
+    - config
+
+- name: Copy 50-bluetooth-quality.conf to wireplumber
+  ansible.builtin.copy:
+    src: 50-bluetooth-quality.conf
+    dest: "{{ item.ansible_facts.getent_passwd[item.item.name][4] }}/.config/wireplumber/wireplumber.conf.d/50-bluetooth-quality.conf"
+    owner: "{{ item.item.name }}"
+    group: "{{ item.item.group | default(default_group) }}"
+    mode: '0644'
+  loop: "{{ user_info.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - pipewire
+    - config
+
+- name: Copy 60-volume-boost.conf to wireplumber
+  ansible.builtin.copy:
+    src: 60-volume-boost.conf
+    dest: "{{ item.ansible_facts.getent_passwd[item.item.name][4] }}/.config/wireplumber/wireplumber.conf.d/50-bluetooth-quality.conf"
+    owner: "{{ item.item.name }}"
+    group: "{{ item.item.group | default(default_group) }}"
+    mode: '0644'
+  loop: "{{ user_info.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - pipewire
+    - config
+
+- name: Copy 99-ldac.conf to pipewire.conf.d
+  ansible.builtin.copy:
+    src: 99-ldac.conf
+    dest: "{{ item.ansible_facts.getent_passwd[item.item.name][4] }}/.config/pipewire/pipewire.conf.d/99-ldac.conf"
+    owner: "{{ item.item.name }}"
+    group: "{{ item.item.group | default(default_group) }}"
+    mode: '0644'
+  loop: "{{ user_info.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - pipewire
+    - config

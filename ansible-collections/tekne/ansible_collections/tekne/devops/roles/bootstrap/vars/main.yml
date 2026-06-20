@@ -1,0 +1,91 @@
+---
+# ============================================
+# ONEDRIVE CONFIG (config file: /home/dvaliente/.config/onedrive/config)
+# ============================================
+bootstrap_onedrive_config_dir: "/home/dvaliente/.config/onedrive"
+
+# ============================================
+# SYMBOLIC LINKS
+# ============================================
+bootstrap_symlinks:
+  # Scripts and bins
+  - src: "{{ bootstrap_onedrive }}/Documents/sc/asd.py"
+    dest: "{{ bootstrap_home }}/bin/asd"
+
+  # Documents
+  - src: "{{ bootstrap_onedrive }}/Documents"
+    dest: "{{ bootstrap_home }}/Documents"
+
+  # Notes
+  - src: "{{ bootstrap_onedrive }}/Documents/notes"
+    dest: "{{ bootstrap_home }}/.local/share/notes"
+
+  # Bashrc
+  - src: "{{ bootstrap_onedrive }}/Documents/sc/bashrc.txt"
+    dest: "{{ bootstrap_home }}/.bashrc"
+
+  # Remmina
+  - src: "{{ bootstrap_onedrive }}/Documents/sc/remmina/share/remmina"
+    dest: "{{ bootstrap_home }}/.local/share/remmina"
+
+  # SSH config
+  - src: "{{ bootstrap_onedrive }}/Documents/sc/sshconfig"
+    dest: "{{ bootstrap_home }}/.ssh/config"
+
+  # SSH keys
+  - src: "{{ bootstrap_onedrive }}/Documents/keys/id_rsa"
+    dest: "{{ bootstrap_home }}/.ssh/id_rsa"
+    mode: "0600"
+
+  - src: "{{ bootstrap_onedrive }}/Documents/keys/id_rsa.pub"
+    dest: "{{ bootstrap_home }}/.ssh/id_rsa.pub"
+    mode: "0644"
+
+  # Pictures
+  - src: "{{ bootstrap_onedrive }}/Pictures"
+    dest: "{{ bootstrap_home }}/Pictures"
+
+  # User avatar
+  - src: "{{ bootstrap_onedrive }}/Pictures/Avatars/fierce-yugen.jpg"
+    dest: "{{ bootstrap_home }}/.face.icon"
+
+  - src: "{{ bootstrap_onedrive }}/Pictures/Avatars/fierce-yugen.jpg"
+    dest: "{{ bootstrap_home }}/.face"
+
+# SSH keys that need special permission handling
+bootstrap_ssh_keys:
+  - path: "{{ bootstrap_onedrive }}/Documents/keys/id_rsa"
+    mode: "0600"
+  - path: "{{ bootstrap_onedrive }}/Documents/keys/id_rsa.pub"
+    mode: "0644"
+
+# ============================================
+# BLUETOOTH CONFIGURATION
+# ============================================
+bootstrap_bluetooth_config:
+  - regexp: '#Name = BlueZ'
+    line: "Name = {{ bootstrap_bluetooth_name }}"
+
+  - regexp: '#AutoEnable=true'
+    line: 'AutoEnable=true'
+
+  - regexp: '#SessionMode = basic'
+    line: 'SessionMode = ertm'
+
+  - regexp: '#StreamMode = basic'
+    line: 'StreamMode = streaming'
+
+  - regexp: '#NameResolving = true'
+    line: 'NameResolving = true'
+
+  - regexp: '#MultiProfile = off'
+    line: 'MultiProfile = multiple'
+
+  - regexp: '#ControllerMode = dual'
+    line: 'ControllerMode = dual'
+
+  - regexp: '#FastConnectable = false'
+    line: 'FastConnectable = true'
+
+  - regexp: '#JustWorksRepairing = never'
+    line: 'JustWorksRepairing = confirm'

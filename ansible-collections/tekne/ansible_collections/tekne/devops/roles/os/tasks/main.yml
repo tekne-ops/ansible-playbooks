@@ -1,0 +1,324 @@
+---
+# =============================================================================
+# System Configuration
+# =============================================================================
+
+- name: Ensure reflector config directory exists
+  ansible.builtin.file:
+    path: /etc/xdg/reflector
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - os
+    - system_config
+
+- name: Copy reflector.conf to system
+  ansible.builtin.copy:
+    src: reflector.conf
+    dest: /etc/xdg/reflector/reflector.conf
+    owner: root
+    group: root
+    mode: '0644'
+  tags:
+    - os
+    - system_config
+
+# =============================================================================
+# CPU power / governor
+# =============================================================================
+
+- name: Set CPU governor to performance in cpupower-service.conf
+  ansible.builtin.lineinfile:
+    path: /etc/default/cpupower-service.conf
+    regexp: "^#?GOVERNOR=.*"
+    line: "GOVERNOR='performance'"
+    create: true
+    mode: '0644'
+  tags:
+    - os
+    - cpupower
+
+- name: Enable cpupower.service (do not start)
+  ansible.builtin.systemd:
+    name: cpupower
+    enabled: true
+    state: stopped
+  tags:
+    - os
+    - cpupower
+
+- name: Enable fstrim.service (start on boot unless install chroot phase)
+  ansible.builtin.systemd:
+    name: fstrim.service
+    enabled: true
+    state: "{{ 'stopped' if install_chroot_phase | bool else 'started' }}"
+  tags:
+    - os
+    - fstrim
+
+# Locale Configuration
+- name: Set system locale
+  ansible.builtin.lineinfile:
+    path: /etc/locale.conf
+    state: present
+    line: "LANG={{ os_locale }}"
+    create: true
+    mode: '0644'
+  tags:
+    - os
+    - locale
+
+- name: Enable locale in locale.gen
+  ansible.builtin.lineinfile:
+    path: /etc/locale.gen
+    regexp: '^#?{{ os_locale | regex_escape }}'
+    line: "{{ os_locale }} UTF-8"
+  notify: Generate locales
+  tags:
+    - os
+    - locale
+
+- name: Flush handlers to run locale-gen now
+  ansible.builtin.meta: flush_handlers
+  tags:
+    - os
+    - locale
+
+# =============================================================================
+# THEMIS: cronie, cpupower config, irqbalance (enable and start)
+# =============================================================================
+
+- name: Install cronie (THEMIS)
+  community.general.pacman:
+    name:
+      - cronie
+    state: present
+  when: os_hostname == 'THEMIS'
+  tags:
+    - os
+    - themis_services
+
+- name: Enable THEMIS services (start on boot unless install chroot phase)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: "{{ 'stopped' if install_chroot_phase | bool else 'started' }}"
+  loop:
+    - cronie.service
+    - irqbalance.service
+    - sshd.service
+  when: os_hostname == 'THEMIS'
+  tags:
+    - os
+    - themis_services
+
+# =============================================================================
+# Tekne bash repository and PATH (requires network)
+# =============================================================================
+
+- name: Validate git_token for private tekne repository clones
+  ansible.builtin.assert:
+    that:
+      - git_token is defined
+      - git_token | length > 0
+    fail_msg: "git_token must be defined in vault for tekne repository clones."
+    quiet: true
+  tags:
+    - os
+    - tekne_bash
+    - tekne_python
+    - tekne_ansible
+    - srv_code
+
+- name: Ensure git is installed for cloning tekne bash repo
+  community.general.pacman:
+    name: git
+    state: present
+  tags:
+    - os
+    - tekne_bash
+
+- name: Ensure devs group exists (for /srv/code ownership)
+  ansible.builtin.group:
+    name: devs
+    state: present
+  tags:
+    - os
+    - tekne_bash
+    - srv_code
+
+- name: Create /srv/code directory (group devs, no access for others)
+  ansible.builtin.file:
+    path: /srv/code/tekne
+    state: directory
+    owner: root
+    group: devs
+    mode: '0770'
+  tags:
+    - os
+    - tekne_bash
+    - srv_code
+
+- name: Clone tekne bash repository into /srv/code/tekne/bash
+  ansible.builtin.git:
+    repo: https://"{{ git_token }}"@github.com/tekne-ops/bash
+    dest: /srv/code/tekne/bash
+    version: main
+    force: false
+  tags:
+    - os
+    - tekne_bash
+
+- name: Clone tekne python repository into /srv/code/tekne/python
+  ansible.builtin.git:
+    repo: https://"{{ git_token }}"@github.com/tekne-ops/python
+    dest: /srv/code/tekne/python
+    version: main
+    force: false
+  tags:
+    - os
+    - tekne_python
+
+- name: Create /srv/code/tekne/ansible directory
+  ansible.builtin.file:
+    path: /srv/code/tekne/ansible
+    state: directory
+    owner: root
+    group: devs
+    mode: '0770'
+  tags:
+    - os
+    - tekne_ansible
+
+- name: Clone ansible role repositories into /srv/code/tekne/ansible
+  ansible.builtin.git:
+    repo: https://"{{ git_token }}"@github.com/tekne-ops/ansible-collections
+    dest: "/srv/code/tekne/ansible-collections"
+    version: main
+    force: false
+  tags:
+    - os
+    - tekne_ansible
+
+- name: Clone ansible-playbook repository into /srv/code/tekne/ansible/ansible-playbook
+  ansible.builtin.git:
+    repo: https://"{{ git_token }}"@github.com/tekne-ops/ansible-playbooks
+    dest: /srv/code/tekne/ansible/ansible-playbooks
+    version: main
+    force: false
+  tags:
+    - os
+    - tekne_ansible
+
+- name: Add tekne bash paths to /etc/profile via profile.d
+  ansible.builtin.copy:
+    dest: /etc/profile.d/tekne-bash.sh
+    content: |
+      # Tekne bash utilities - scripts and bin in PATH
+      append_path() {
+        case ":$PATH:" in
+          *:"$1":*) ;;
+          *) PATH="${PATH:+"$PATH:"}$1" ;;
+        esac
+      }
+      append_path '/srv/code/tekne/bash/scripts'
+      append_path '/srv/code/tekne/bash/bin'
+      append_path '/srv/code/tekne/python/src/tekne_tools'
+    owner: root
+    group: root
+    mode: '0644'
+  tags:
+    - os
+    - tekne_bash
+
+# =============================================================================
+# NTP Configuration (requires network)
+# =============================================================================
+
+- name: Enable NTP synchronization
+  ansible.builtin.command:
+    cmd: /usr/bin/timedatectl set-ntp true
+  changed_when: false
+  tags:
+    - os
+    - ntp
+
+# =============================================================================
+# Mirror Configuration (requires network to be up)
+# =============================================================================
+
+- name: Update pacman mirrorlist
+  ansible.builtin.command:
+    cmd: >-
+      /usr/bin/reflector
+      --country '{{ os_mirror_country }}'
+      --latest {{ os_mirror_count }}
+      --sort rate
+      --protocol {{ os_mirror_protocols }}
+      --age {{ os_mirror_age }}
+      --save /etc/pacman.d/mirrorlist
+  changed_when: false
+  tags:
+    - os
+    - mirrors
+
+# =============================================================================
+# Tekne bash scripts and bin – make all files executable
+# =============================================================================
+
+- name: Set directory permissions
+  ansible.builtin.find:
+    paths: /srv/code
+    file_type: directory
+  register: dirs
+
+- name: Apply directory mode
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: '0775'
+    recurse: yes
+    owner: root
+    group: devs
+  loop: "{{ dirs.files }}"
+
+- name: Set file permissions
+  ansible.builtin.find:
+    paths: /srv/code
+    file_type: file
+  register: files
+
+- name: Apply file mode
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: '0664'
+    recurse: yes
+    owner: root
+    group: devs
+  loop: "{{ files.files }}"
+
+- name: Find all files in bash scripts and bin directories
+  ansible.builtin.find:
+    paths: "{{ item }}"
+    recurse: true
+    file_type: file
+  register: bash_find_result
+  loop:
+    - /srv/code/tekne/bash/scripts
+    - /srv/code/tekne/bash/bin
+  tags:
+    - os
+    - bash_executable
+
+- name: Make all files in bash scripts and bin executable
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: '0775'
+  loop: "{{ bash_find_result.results | selectattr('files') | map(attribute='files') | flatten | map(attribute='path') | list }}"
+  when: bash_find_result.results is defined
+  loop_control:
+    label: "{{ item }}"
+  tags:
+    - os
+    - bash_executable

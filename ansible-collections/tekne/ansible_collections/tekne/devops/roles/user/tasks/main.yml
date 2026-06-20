@@ -1,0 +1,158 @@
+---
+- name: Create devs group
+  ansible.builtin.group:
+    name: devs
+    state: present
+  tags:
+    - user
+    - create
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - user_password is defined
+      - user_password | length > 0
+    fail_msg: "user_password must be defined (use ansible-vault)"
+    quiet: true
+  tags:
+    - user
+    - validation
+
+- name: Create users
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    shell: "{{ item.shell | default(default_shell) }}"
+    group: "{{ item.group | default(default_group) }}"
+    groups: "{{ ((item.groups | default('')) + ',devs') | trim(',') }}"
+    password: "{{ item.password | default(user_password) }}"
+    create_home: true
+    state: present
+  loop: "{{ users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  tags:
+    - user
+    - create
+
+- name: Set root password
+  ansible.builtin.user:
+    name: root
+    password: "{{ root_password | default(user_password) }}"
+  when: manage_root_password | bool
+  tags:
+    - user
+    - root
+
+- name: Configure authorized SSH keys
+  ansible.posix.authorized_key:
+    user: "{{ item.name }}"
+    state: present
+    exclusive: "{{ item.ssh_exclusive | default(true) }}"
+    key: "{{ lookup('file', role_path + '/files/' + item.ssh_key_file) }}"
+  loop: "{{ users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.ssh_key_file is defined
+  tags:
+    - user
+    - ssh
+
+# =============================================================================
+# Sudoers Configuration
+# =============================================================================
+
+- name: Copy sudoers file for dvaliente
+  ansible.builtin.copy:
+    src: sudo_dvaliente
+    dest: /etc/sudoers.d/sudo_dvaliente
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  tags:
+    - user
+    - sudo
+
+- name: Copy sudoers file for devops
+  ansible.builtin.copy:
+    src: sudo_devops
+    dest: /etc/sudoers.d/sudo_devops
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  tags:
+    - user
+    - sudo
+
+# =============================================================================
+# User Home Configuration
+# =============================================================================
+
+- name: Get user info for home directories
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ item.name }}"
+  loop: "{{ users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: user_info
+  tags:
+    - user
+    - home_config
+
+- name: Create user directories
+  ansible.builtin.file:
+    path: "{{ item.0.ansible_facts.getent_passwd[item.0.item.name][4] }}/{{ item.1 }}"
+    state: directory
+    owner: "{{ item.0.item.name }}"
+    group: "{{ item.0.item.group | default(default_group) }}"
+    mode: "{{ '0700' if item.1 in ['.gnupg', '.ssh'] else '0755' }}"
+  loop: "{{ user_info.results | product(user_directories) | list }}"
+  loop_control:
+    label: "{{ item.0.item.name }}/{{ item.1 }}"
+  tags:
+    - user
+    - home_config
+
+- name: Copy bashrc to each user
+  ansible.builtin.copy:
+    src: bashrc
+    dest: "{{ item.ansible_facts.getent_passwd[item.item.name][4] }}/.bashrc"
+    owner: "{{ item.item.name }}"
+    group: "{{ item.item.group | default(default_group) }}"
+    mode: '0644'
+  loop: "{{ user_info.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - user
+    - home_config
+
+- name: Copy vimrc to each user
+  ansible.builtin.copy:
+    src: vimrc
+    dest: "{{ item.ansible_facts.getent_passwd[item.item.name][4] }}/.vimrc"
+    owner: "{{ item.item.name }}"
+    group: "{{ item.item.group | default(default_group) }}"
+    mode: '0644'
+  loop: "{{ user_info.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - user
+    - home_config
+
+- name: Copy pikaur.conf to each user
+  ansible.builtin.copy:
+    src: pikaur.conf
+    dest: "{{ item.ansible_facts.getent_passwd[item.item.name][4] }}/.config/pikaur.conf"
+    owner: "{{ item.item.name }}"
+    group: "{{ item.item.group | default(default_group) }}"
+    mode: '0644'
+  loop: "{{ user_info.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - user
+    - home_config

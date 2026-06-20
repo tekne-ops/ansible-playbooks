@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT-0
+---
+# vars file for ansible-role-haproxy
+#
+# SSL certificate (tekne.sv.pem): do NOT commit the PEM file. Use one of:
+#
+# 1) Ansible Vault (recommended): In the playbook vault file add:
+#      haproxy_ssl_pem: |
+#        -----BEGIN PRIVATE KEY-----
+#        ...
+#        -----END PRIVATE KEY-----
+#        -----BEGIN CERTIFICATE-----
+#        ...
+#        -----END CERTIFICATE-----
+#    Run with: ansible-playbook main.yml --ask-vault-pass
+#
+# 2) Path on controller: Set when running the playbook:
+#      ansible-playbook main.yml -e haproxy_ssl_pem_path=/secure/path/tekne.sv.pem --ask-vault-pass
+#    The file is copied from the controller to the target; it is not stored in the role or in git.

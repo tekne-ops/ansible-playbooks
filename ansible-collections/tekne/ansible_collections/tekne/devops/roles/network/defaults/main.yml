@@ -1,0 +1,22 @@
+---
+# Hostname (from playbook pre_tasks / hostname role)
+network_hostname: "{{ hostname | default(ansible_hostname) | upper }}"
+
+# Hosts that receive WiFi/Ethernet systemd-networkd units
+network_config_hosts:
+  - ASTER
+  - THEMIS
+  - HEPHAESTUS
+  - YUGEN
+  - KVM
+
+# WiFi (ASTER only); set passphrase in vault
+network_wifi_ssid: "{{ os_wifi_ssid | default('esher') }}"
+network_wifi_interface: "{{ os_wifi_interface | default('') }}"
+network_wifi_passphrase: "{{ os_wifi_passphrase | default('') }}"
+
+# Live WiFi association via iwctl (disable during arch-chroot install; config still deploys)
+network_connect_wifi: true
+
+# Skip archlinux.org ping loop during arch-chroot install (live ISO already verified network)
+install_chroot_phase: false

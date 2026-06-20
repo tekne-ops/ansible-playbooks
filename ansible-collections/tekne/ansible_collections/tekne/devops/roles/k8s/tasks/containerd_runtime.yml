@@ -1,0 +1,161 @@
+# SPDX-License-Identifier: MIT-0
+---
+# Binary containerd, runc, and CNI plugins (upstream releases).
+# Runs after kubelet is enabled; ends by enabling containerd (not started).
+
+- name: Ensure containerd install directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ k8s_containerd_install_prefix }}"
+    - "{{ k8s_containerd_install_prefix }}/sbin"
+    - "{{ k8s_containerd_unit_path | dirname }}"
+    - "{{ k8s_cni_bin_dir }}"
+  tags:
+    - k8s
+    - k8s-containerd
+
+- name: Download containerd release tarball
+  ansible.builtin.get_url:
+    url: "{{ k8s_containerd_tarball_url }}"
+    dest: "{{ k8s_containerd_tarball_dest }}"
+    mode: "0644"
+  tags:
+    - k8s
+    - k8s-containerd
+
+- name: Extract containerd binaries to {{ k8s_containerd_install_prefix }}
+  ansible.builtin.unarchive:
+    src: "{{ k8s_containerd_tarball_dest }}"
+    dest: "{{ k8s_containerd_install_prefix }}"
+    remote_src: true
+    creates: "{{ k8s_containerd_install_prefix }}/bin/containerd"
+  tags:
+    - k8s
+    - k8s-containerd
+
+- name: Install containerd systemd unit file
+  ansible.builtin.get_url:
+    url: "{{ k8s_containerd_service_url }}"
+    dest: "{{ k8s_containerd_unit_path }}"
+    mode: "0644"
+    owner: root
+    group: root
+  tags:
+    - k8s
+    - k8s-containerd
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-services
+
+- name: Enable containerd service (do not start)
+  ansible.builtin.systemd:
+    name: "{{ k8s_containerd_service }}"
+    enabled: true
+    state: stopped
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-services
+
+- name: Download runc binary
+  ansible.builtin.get_url:
+    url: "{{ k8s_runc_url }}"
+    dest: "{{ k8s_runc_download_dest }}"
+    mode: "0755"
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-runc
+
+- name: Install runc to {{ k8s_runc_install_path }}
+  ansible.builtin.command:
+    cmd: install -m 755 {{ k8s_runc_download_dest }} {{ k8s_runc_install_path }}
+    creates: "{{ k8s_runc_install_path }}"
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-runc
+
+- name: Download CNI plugins archive
+  ansible.builtin.get_url:
+    url: "{{ k8s_cni_plugins_url }}"
+    dest: "{{ k8s_cni_plugins_dest }}"
+    mode: "0644"
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-cni
+
+- name: Extract CNI plugins to {{ k8s_cni_bin_dir }}
+  ansible.builtin.unarchive:
+    src: "{{ k8s_cni_plugins_dest }}"
+    dest: "{{ k8s_cni_bin_dir }}"
+    remote_src: true
+    creates: "{{ k8s_cni_bin_dir }}/bridge"
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-cni
+
+- name: Ensure containerd config directory exists
+  ansible.builtin.file:
+    path: "{{ k8s_containerd_config_dir }}"
+    state: directory
+    mode: "0755"
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-containerd-config
+
+- name: Write default containerd configuration
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ k8s_containerd_bin }} config default > {{ k8s_containerd_config_path }}
+  args:
+    executable: /bin/bash
+    creates: "{{ k8s_containerd_config_path }}"
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-containerd-config
+
+- name: Enable systemd cgroup driver in containerd config
+  ansible.builtin.replace:
+    path: "{{ k8s_containerd_config_path }}"
+    regexp: 'SystemdCgroup\s*=\s*false'
+    replace: "SystemdCgroup = true"
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-containerd-config
+
+- name: Set Kubernetes sandbox (pause) image in containerd config
+  ansible.builtin.lineinfile:
+    path: "{{ k8s_containerd_config_path }}"
+    insertafter: '^\s*{{ k8s_containerd_sandbox_insert_after }}\s*='
+    line: '    sandbox_image = "{{ k8s_containerd_sandbox_image }}"'
+    regexp: '^\s*sandbox_image\s*='
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-containerd-config
+
+- name: Restart containerd after configuration changes
+  ansible.builtin.systemd:
+    name: "{{ k8s_containerd_service }}"
+    state: restarted
+    enabled: true
+    daemon_reload: true
+  tags:
+    - k8s
+    - k8s-containerd
+    - k8s-containerd-config
+    - k8s-services

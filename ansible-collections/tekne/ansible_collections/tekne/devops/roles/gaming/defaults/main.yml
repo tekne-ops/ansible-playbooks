@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT-0
+---
+# defaults file for ./ansible-role-gaming
+
+# Gaming packages to install
+gaming_packages:
+  - lutris
+  - heroic-games-launcher
+  - steam
+  - ttf-liberation
+  - lib32-systemd
+  - wine-tkg-valve-exp-bleeding
+  - winetricks
+  - wine-gecko
+  - wine-mono
+  - openbox
+  - gamemode
+  - proton-ge-custom-bin
+  - noto-fonts
+  - noto-fonts-cjk
+  - noto-fonts-emoji
+  - ttf-ms-win10-auto
+  - lib32-pcsclite
+
+# File destinations
+gaming_limits_conf_dest: /etc/security/limits.d/game.conf
+gaming_script_dest: /usr/local/bin/game

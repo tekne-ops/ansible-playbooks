@@ -1,0 +1,2 @@
+dvaliente ALL=(ALL:ALL) ALL
+dvaliente ALL=(ALL:ALL) NOPASSWD: /usr/bin/pacman,/usr/bin/pikaur,/usr/bin/makepkg,/usr/bin/docker,/usr/bin/fwupdmgr,/usr/local/bin/kubectl

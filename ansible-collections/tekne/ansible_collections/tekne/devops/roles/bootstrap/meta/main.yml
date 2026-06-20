@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  author: dvaliente
+  description: Bootstrap role for symlinks, bluetooth, and XFCE desktop configuration
+  license: MIT
+  min_ansible_version: "2.10"
+
+  platforms:
+    - name: Archlinux
+      versions:
+        - all
+
+  galaxy_tags:
+    - archlinux
+    - bootstrap
+    - symlinks
+    - bluetooth
+    - xfce
+
+dependencies: []

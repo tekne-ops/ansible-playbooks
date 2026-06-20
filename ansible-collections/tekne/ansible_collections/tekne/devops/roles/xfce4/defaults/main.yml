@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: MIT-0
+---
+# defaults file for ./ansible-role-xfce4/
+
+# Skip archlinux.org ping loop during arch-chroot install (live ISO already verified network)
+install_chroot_phase: false
+
+# XFCE4 package groups (verified with pacman -Qg)
+xfce4_groups:
+  - xfce4
+  - xfce4-goodies
+  - xorg-apps
+
+# XFCE4 individual packages (verified with pacman -Q)
+xfce4_packages:
+  - xfce4-panel-profiles
+  - gnome-keyring
+  - seahorse
+  - libsecret
+  - xdg-desktop-portal
+  - xdg-desktop-portal-gtk
+  - xdg-desktop-portal-xapp
+  - xdg-desktop-portal-cosmic
+  - libportal
+  - libportal-gtk4
+  - libportal-qt6
+  - bibata-cursor-theme-bin
+  - flat-remix
+  - kora-icon-theme
+  - xorg-server
+  - xdotool
+  - file-roller
+  - thunar-volman
+  - gvfs
+  - gvfs-afc
+  - sound-theme-smooth
+  - picom
+  # Bluetooth support (required for bootstrap role bluetooth config)
+  - bluez
+  - bluez-utils
+  - blueman
+  # Software needed at first boot.
+  - microsoft-edge-stable-bin
+  - ocs-url
+  - bitwarden-bin
+  - yubico-authenticator-bin
+  # VLC
+  - vlc
+  - vlc-plugin-mpg123
+  - vlc-plugin-mpeg2
+  - vlc-plugin-x264
+  - vlc-plugin-x265
+  - vlc-plugin-matroska
+  - vlc-plugin-ass
+  - vlc-plugins-video-output
+  - vlc-plugins-visualization
+  - vlc-plugins-extra
+  - vlc-plugins-base
+  - vlc-plugin-ogg
+  - vlc-plugin-notify
+  - vlc-plugin-upnp
+  - vlc-plugin-mtp
+  - vlc-plugin-mad
+  - vlc-plugin-gstreamer
+  - vlc-plugin-freetype
+  - vlc-plugin-flac
+  - vlc-plugin-ffmpeg
+  - pavucontrol
+
+# LightDM packages (installed on xfce4_lightdm_hosts)
+xfce4_lightdm_packages:
+  - lightdm
+  - light-locker
+  - lightdm-slick-greeter
+  - lightdm-gtk-greeter
+  - lightdm-gtk-greeter-settings
+  - lightdm-webkit-theme-litarvan
+  - lightdm-webkit2-greeter
+
+# User that receives ~/.config/picom/picom.conf
+xfce4_picom_user: dvaliente
+
+# Hosts that receive LightDM packages, greeter config, and backgrounds
+xfce4_lightdm_hosts:
+  - ASTER
+  - YUGEN
+
+# LightDM service name
+xfce4_lightdm_service: lightdm
+
+# XFCE backgrounds (xfce4_lightdm_hosts only)
+xfce4_backgrounds_repo: "https://github.com/tekne-ops/backgrounds"
+xfce4_backgrounds_dir: "/usr/share/backgrounds/xfce"
+xfce4_slick_greeter_background: "/usr/share/backgrounds/xfce/dog-animal-picture-uhdpaper.com-4K-4.3358.jpg"

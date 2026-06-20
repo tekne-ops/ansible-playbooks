@@ -1,0 +1,240 @@
+---
+# =============================================================================
+# Network Configuration
+# =============================================================================
+# Order: deploy templates first, then flush handlers, then enable/restart
+# services so they load the new config before WiFi connect.
+
+- name: Read hostname from /etc/hostname
+  ansible.builtin.slurp:
+    src: /etc/hostname
+  register: network_hostname_file
+  tags:
+    - network-host
+
+- name: Set network hostname facts from /etc/hostname
+  ansible.builtin.set_fact:
+    network_hostname: "{{ (network_hostname_file.content | b64decode).strip() | upper }}"
+    network_hostname_raw: "{{ (network_hostname_file.content | b64decode).strip() }}"
+  when: network_hostname_file is succeeded
+  tags:
+    - network-host
+
+- name: Show network hostname and whether WiFi/Ethernet units will deploy
+  ansible.builtin.debug:
+    msg:
+      network_hostname: "{{ network_hostname }}"
+      network_hostname_raw: "{{ network_hostname_raw }}"
+      deploy_systemd_network_units: "{{ network_hostname in network_config_hosts }}"
+      network_config_hosts: "{{ network_config_hosts }}"
+  tags:
+    - network-host
+
+- name: Copy WiFi network configuration
+  ansible.builtin.template:
+    src: 80-wifi-station.network.j2
+    dest: /etc/systemd/network/80-wifi-station.network
+    owner: root
+    group: root
+    mode: '0644'
+  when: network_hostname in network_config_hosts
+  notify: Restart systemd-networkd
+  tags:
+    - network-host
+
+- name: Copy Ethernet network configuration
+  ansible.builtin.template:
+    src: 89-ethernet.network.j2
+    dest: /etc/systemd/network/89-ethernet.network
+    owner: root
+    group: root
+    mode: '0644'
+  when: network_hostname in network_config_hosts
+  notify: Restart systemd-networkd
+  tags:
+    - network-host
+
+# SSH and bridge (br0) network configuration
+- name: Ensure sshd_config.d directory exists
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: network_hostname == 'THEMIS'
+  tags:
+    - network-host
+
+- name: Copy ssh.conf to sshd_config.d
+  ansible.builtin.copy:
+    src: ssh.conf
+    dest: /etc/ssh/sshd_config.d/ssh.conf
+    owner: root
+    group: root
+    mode: '0644'
+  when: network_hostname == 'THEMIS'
+  tags:
+    - network-host
+
+- name: Copy 25-br0.netdev to systemd-network (THEMIS)
+  ansible.builtin.copy:
+    src: 25-br0.netdev
+    dest: /etc/systemd/network/25-br0.netdev
+    owner: root
+    group: root
+    mode: '0644'
+  when: network_hostname == 'THEMIS'
+  notify: Restart systemd-networkd
+  tags:
+    - network-host
+
+- name: Copy 25-br0-en.network to systemd-network (THEMIS)
+  ansible.builtin.copy:
+    src: 25-br0-en.network
+    dest: /etc/systemd/network/25-br0-en.network
+    owner: root
+    group: root
+    mode: '0644'
+  when: network_hostname == 'THEMIS'
+  notify: Restart systemd-networkd
+  tags:
+    - network-host
+
+- name: Deploy 25-br0.network with hostname (THEMIS)
+  ansible.builtin.template:
+    src: 25-br0.network.j2
+    dest: /etc/systemd/network/25-br0.network
+    owner: root
+    group: root
+    mode: '0644'
+  when: network_hostname == 'THEMIS'
+  notify: Restart systemd-networkd
+  tags:
+    - network-host
+
+- name: Flush handlers so networkd restarts with new config before enabling WiFi
+  ansible.builtin.meta: flush_handlers
+  tags:
+    - network-host
+
+- name: Enable and restart iwd (ASTER only)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: stopped
+  loop:
+    - bluetooth.service
+    - iwd.service
+    - thermald.service
+    - tlp.service
+    # - nvidia-powerd.service
+  when: network_hostname == 'ASTER'
+  tags:
+    - network-host
+    - wifi
+
+- name: Enable and restart systemd-networkd
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: stopped
+  loop:
+    - systemd-networkd.service
+    - systemd-resolved.service
+    - acpid.service
+  tags:
+    - network-host
+
+- name: Require WiFi passphrase for ASTER
+  ansible.builtin.assert:
+    that:
+      - network_wifi_passphrase is defined
+      - network_wifi_passphrase | length > 0
+    fail_msg: "network_wifi_passphrase (or os_wifi_passphrase in vault) must be set for ASTER WiFi connection."
+  when:
+    - network_hostname == 'ASTER'
+    - network_connect_wifi | bool
+  tags:
+    - network-host
+    - wifi
+
+- name: Resolve WiFi interface name (ASTER only, auto-detect)
+  ansible.builtin.shell: "ls /sys/class/net | grep -E '^wl' | head -1"
+  register: _wifi_interface_cmd
+  until: _wifi_interface_cmd.stdout | trim | length > 0
+  retries: 10
+  delay: 2
+  changed_when: false
+  when:
+    - network_hostname == 'ASTER'
+    - network_connect_wifi | bool
+    - network_wifi_interface | default('') | length == 0
+  tags:
+    - network-host
+    - wifi
+
+- name: Set WiFi interface for ASTER
+  ansible.builtin.set_fact:
+    network_wifi_interface_resolved: "{{ network_wifi_interface if (network_wifi_interface | default('') | length > 0) else ((_wifi_interface_cmd.stdout | trim) | default('wlan0')) }}"
+  when:
+    - network_hostname == 'ASTER'
+    - network_connect_wifi | bool
+  tags:
+    - network-host
+    - wifi
+
+- name: Wait for WiFi interface to appear (ASTER only)
+  ansible.builtin.wait_for:
+    path: "/sys/class/net/{{ network_wifi_interface_resolved }}"
+    timeout: 15
+  when:
+    - network_hostname == 'ASTER'
+    - network_connect_wifi | bool
+  tags:
+    - network-host
+    - wifi
+
+- name: Connect to WiFi network (ASTER only)
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/iwctl
+      - station
+      - "{{ network_wifi_interface_resolved }}"
+      - connect
+      - "{{ network_wifi_ssid }}"
+      - --passphrase
+      - "{{ network_wifi_passphrase }}"
+  register: _iwctl_connect
+  until: _iwctl_connect.rc == 0
+  retries: 6
+  delay: 5
+  when:
+    - network_hostname == 'ASTER'
+    - network_connect_wifi | bool
+  changed_when: false
+  no_log: true
+  tags:
+    - network-host
+    - wifi
+
+# =============================================================================
+# Wait for Network Connectivity
+# =============================================================================
+
+- name: Flush handlers to restart networkd if config changed
+  ansible.builtin.meta: flush_handlers
+  tags:
+    - network-host
+
+- name: Wait for network connectivity
+  ansible.builtin.command:
+    cmd: ping -c 1 -W 2 archlinux.org
+  register: network_check
+  until: network_check.rc == 0
+  retries: 30
+  delay: 2
+  changed_when: false
+  when: not install_chroot_phase | bool
+  tags:
+    - network-host

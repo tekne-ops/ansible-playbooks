@@ -1,0 +1,14 @@
+---
+# vars file for user role
+#
+# SECURITY NOTE: Sensitive variables like passwords should be stored in
+# an encrypted vault file. Create one with:
+#
+#   ansible-vault create roles/user/vars/vault.yml
+#
+# Then add your password hashes there:
+#
+#   user_password: '$6$...'
+#   root_password: '$6$...'
+#
+# Run playbook with: ansible-playbook init.yml --ask-vault-pass

@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT-0
+---
+# tasks file for jenkins
+
+- name: Check if jenkins container already exists
+  ansible.builtin.command: docker ps -a -f name=^jenkins$ --format '{{ "{{" }}.Names{{ "}}" }}'
+  register: jenkins_container_check
+  changed_when: false
+  failed_when: false
+  tags:
+    - jenkins
+    - docker
+
+- name: Create and start jenkins Docker container
+  ansible.builtin.shell: |
+    docker run -d --name jenkins --restart=unless-stopped \
+      --net {{ jenkins_docker_network }} --ip {{ jenkins_docker_ip }} \
+      {{ jenkins_docker_image }}
+  when: (jenkins_container_check.stdout | trim) != 'jenkins'
+  register: jenkins_container_created
+  tags:
+    - jenkins
+    - docker

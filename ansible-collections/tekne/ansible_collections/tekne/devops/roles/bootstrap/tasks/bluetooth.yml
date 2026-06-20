@@ -1,0 +1,43 @@
+---
+# ============================================
+# BLUETOOTH CONFIGURATION TASKS
+# ============================================
+
+- name: Check if bluetooth config exists
+  become: true
+  ansible.builtin.stat:
+    path: /etc/bluetooth/main.conf
+  register: bluetooth_config_check
+  tags: [bootstrap, bluetooth]
+
+- name: Configure bluetooth settings
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/bluetooth/main.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+    backup: true
+  loop: "{{ bootstrap_bluetooth_config }}"
+  when: bluetooth_config_check.stat.exists
+  notify: restart bluetooth
+  tags: [bootstrap, bluetooth]
+
+- name: Display bluetooth configuration message
+  ansible.builtin.debug:
+    msg:
+      - "Bluetooth configuration updated:"
+      - "  Device name: {{ bootstrap_bluetooth_name }}"
+      - "  AutoEnable: true"
+      - "  SessionMode: ertm"
+      - "  StreamMode: streaming"
+      - "  MultiProfile: multiple"
+      - "  FastConnectable: true"
+  when: bluetooth_config_check.stat.exists
+  tags: [bootstrap, bluetooth]
+
+- name: Display bluetooth not found message
+  ansible.builtin.debug:
+    msg: "Bluetooth config not found at /etc/bluetooth/main.conf - skipping"
+  when: not bluetooth_config_check.stat.exists
+  tags: [bootstrap, bluetooth]

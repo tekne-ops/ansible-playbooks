@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  author: dvaliente
+  description: Manages system users, passwords, and SSH authorized keys
+  license: MIT
+  min_ansible_version: "2.10"
+  platforms:
+    - name: Archlinux
+      versions:
+        - all
+  galaxy_tags:
+    - system
+    - users
+    - security
+    - ssh

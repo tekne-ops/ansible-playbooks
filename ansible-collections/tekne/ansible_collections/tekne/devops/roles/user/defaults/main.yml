@@ -1,0 +1,32 @@
+---
+# defaults file for user role
+
+# List of users to create
+users:
+  - name: dvaliente
+    groups: 'wheel,rfkill,network,devs,video,audio,input,games'
+    ssh_key_file: dvaliente
+  - name: devops
+    groups: 'wheel,rfkill,network,devs,video,audio,input,games'
+    ssh_key_file: devops
+
+# Default shell for all users
+default_shell: /bin/bash
+
+# Default primary group
+default_group: users
+
+# Set to true to manage root password
+manage_root_password: true
+
+# User directories to create in each user's home
+user_directories:
+  - .config/systemd/user
+  - .config/autostart
+  - .config/remmina
+  - .vim/autoload
+  - .vim/bundle
+  - .vim/colors
+  - bin
+  - .gnupg
+  - .ssh

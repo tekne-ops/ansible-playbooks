@@ -1,0 +1,25 @@
+{# Kubernetes cluster health report #}
+{% set width = 78 %}
+{% set border = '═' * width %}
+{% set rule = '─' * width %}
+
+{{ border }}
+  Kubernetes cluster health report
+  Host: {{ inventory_hostname }}  |  API: {{ hostvars[k8s_master_host]['ansible_host'] | default(k8s_master_host) }}:{{ k8s_control_plane_port }}
+{{ border }}
+
+{% for check in k8s_cluster_health_checks.results %}
+{{ rule }}
+  $ {{ check.item }}
+  status: {{ 'OK' if check.rc == 0 else 'FAILED (rc=' ~ check.rc ~ ')' }}
+{{ rule }}
+{% if check.rc == 0 %}
+{{ check.stdout | default('(no output)', true) | trim }}
+{% else %}
+{{ (check.stderr | default(check.stdout, true)) | trim }}
+{% endif %}
+
+{% endfor %}
+{{ border }}
+  End of report
+{{ border }}

@@ -1,0 +1,67 @@
+---
+# ============================================
+# BOOTSTRAP ROLE - OneDrive Sync, Symlinks and Configuration
+# ============================================
+# Execution order:
+#   1. Package installation (pacman)
+#   2. OneDrive sync (first sync + service enablement)
+#   3. Symlinks (depend on OneDrive content)
+#   4. Bluetooth configuration
+#   5. XFCE desktop configuration
+
+# =============================================================================
+# Network Connectivity Check
+# =============================================================================
+
+- name: Wait for network connectivity before package installation
+  ansible.builtin.command:
+    cmd: ping -c 1 -W 2 archlinux.org
+  register: network_check
+  until: network_check.rc == 0
+  retries: 30
+  delay: 2
+  changed_when: false
+  tags:
+    - bootstrap
+    - network
+    - packages
+
+# =============================================================================
+# Package Installation (pacman)
+# =============================================================================
+
+- name: Install bootstrap packages
+  ansible.builtin.command:
+    cmd: pacman -S --noconfirm --needed {{ bootstrap_packages | join(' ') }}
+  register: bootstrap_packages_install_result
+  tags:
+    - bootstrap
+    - packages
+
+- name: Verify bootstrap packages are installed
+  ansible.builtin.command:
+    cmd: "pacman -Q {{ item }}"
+  loop: "{{ bootstrap_packages }}"
+  register: bootstrap_package_verify
+  changed_when: false
+  failed_when: bootstrap_package_verify.rc != 0
+  tags:
+    - bootstrap
+    - packages
+    - verify
+
+- name: Include OneDrive sync tasks
+  ansible.builtin.import_tasks: onedrive_sync.yml
+  tags: [bootstrap, onedrive]
+
+- name: Include symlink tasks
+  ansible.builtin.import_tasks: symlinks.yml
+  tags: [bootstrap, symlinks]
+
+- name: Include bluetooth configuration tasks
+  ansible.builtin.import_tasks: bluetooth.yml
+  tags: [bootstrap, bluetooth]
+
+- name: Include XFCE desktop configuration tasks
+  ansible.builtin.import_tasks: xfce.yml
+  tags: [bootstrap, xfce]

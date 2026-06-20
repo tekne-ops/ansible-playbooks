@@ -1,0 +1,24 @@
+---
+# defaults file for os role
+
+# Hostname (resolved from playbook pre_tasks)
+os_hostname: "{{ hostname }}"
+
+# During arch-chroot install: enable units but do not start services (PID 1 is live ISO)
+install_chroot_phase: false
+
+# Locale settings
+os_locale: en_US.UTF-8
+
+# Mirror settings
+os_mirror_country: 'United States'
+os_mirror_count: 100
+os_mirror_protocols: 'https,ftp'
+os_mirror_age: 168
+
+# THEMIS-only: local .pkg.tar.zst packages (place in role files/)
+os_themis_local_packages:
+  - pikaur-1.33.2-1-any.pkg.tar.zst
+  - schedtoold-0.3-11-x86_64.pkg.tar.zst
+  - blesh-git-0.4.0_devel4.r2307.32bb63da-1-any.pkg.tar.zst
+  - python311-3.11.14-1-x86_64.pkg.tar.zst

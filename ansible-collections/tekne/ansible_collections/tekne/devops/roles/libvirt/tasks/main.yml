@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT-0
+---
+# tasks file for ansible-role-libvirt
+
+- name: Install libvirt and related packages
+  community.general.pacman:
+    name:
+      - libvirt
+      - dnsmasq
+      - openbsd-netcat
+      - dmidecode
+      - qemu-full
+      - qemu-block-gluster
+      - qemu-block-iscsi
+      - samba
+      - edk2-ovmf-fedora
+    state: present
+  register: libvirt_packages_install
+
+- name: Confirm libvirt packages are installed
+  ansible.builtin.command: >-
+    pacman -Q libvirt dnsmasq openbsd-netcat dmidecode qemu-full
+    qemu-block-gluster qemu-block-iscsi samba
+  register: libvirt_packages_check
+  changed_when: false
+  failed_when: libvirt_packages_check.rc != 0
+
+- name: Get list of local users (UID >= 1000)
+  ansible.builtin.shell: "getent passwd | awk -F: '$3 >= 1000 {print $1}'"
+  register: local_users_cmd
+  changed_when: false
+
+- name: Add all local users to libvirt and kvm groups
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: libvirt,kvm
+    append: true
+  loop: "{{ local_users_cmd.stdout_lines }}"
+  when: local_users_cmd.stdout_lines | length > 0
+
+- name: Enable libvirtd.service (do not start)
+  ansible.builtin.systemd:
+    name: libvirtd
+    enabled: true
+    state: stopped
+  when: libvirt_packages_check.rc == 0

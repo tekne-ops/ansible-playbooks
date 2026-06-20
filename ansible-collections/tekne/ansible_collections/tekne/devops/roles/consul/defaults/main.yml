@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT-0
+---
+# defaults file for consul
+consul_docker_image: hashicorp/consul
+consul_docker_network: dockers
+consul_docker_ip: 192.168.75.11
+consul_directory: /srv/docker/consul/config
+consul_tls_dc: dc1
+consul_tls_domain: consul.tekne.sv
+# UID/GID the Consul process runs as in the official image (non-root)
+consul_container_user: "100"
+consul_container_group: "1000"
