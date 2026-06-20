@@ -285,6 +285,112 @@ chroot_cleanup_vault_pass() {
   run rm -f "$mnt${CHROOT_VAULT_PASS}"
 }
 
+# efibootmgr needs host NVRAM inside the install chroot (Arch wiki install guide).
+chroot_mount_efivars() {
+  local mnt="$1"
+  if (( DRY_RUN )); then
+    log DRY-RUN "mount --bind /sys/firmware/efi/efivars ${mnt}/sys/firmware/efi/efivars"
+    return 0
+  fi
+  [[ -d /sys/firmware/efi/efivars ]] || {
+    log WARN "Host efivars not available; efibootmgr may not persist boot entries"
+    return 0
+  }
+  run mkdir -p "$mnt/sys/firmware/efi/efivars"
+  if mountpoint -q "$mnt/sys/firmware/efi/efivars"; then
+    return 0
+  fi
+  run mount --bind /sys/firmware/efi/efivars "$mnt/sys/firmware/efi/efivars"
+}
+
+chroot_umount_efivars() {
+  local mnt="$1"
+  if (( DRY_RUN )); then
+    log DRY-RUN "umount ${mnt}/sys/firmware/efi/efivars (if mounted)"
+    return 0
+  fi
+  if mountpoint -q "$mnt/sys/firmware/efi/efivars"; then
+    run umount "$mnt/sys/firmware/efi/efivars"
+  fi
+}
+
+# Regenerate UKI + EFI boot entry. Must run after Ansible: pacman installs in chroot
+# (e.g. xfce4 on ASTER) trigger mkinitcpio hooks and leave the UKI/ESP out of sync
+# if boot was configured earlier in the pipeline.
+configure_uki_boot() {
+  local host="$1"
+  local mnt="$2"
+  local kernel="${HOST_KERNEL[$host]}"
+  local kernel_pkg boot_disk uki_efi params_line
+
+  kernel_pkg="linux${kernel}"
+  uki_efi="arch-${kernel_pkg}.efi"
+  boot_disk="$(host_disk_path "$host" 0)"
+  params_line="kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2${HOST_EFI_INTEL[$host]}${HOST_EFI_EXTRA[$host]}"
+
+  log INFO "=== Finalize UKI boot (post-Ansible): boot_disk=$boot_disk kernel=${kernel_pkg} uki=${uki_efi} ==="
+
+  if [[ "$host" == ASTER ]]; then
+    log INFO "Ensuring MODULES=(mt7925e btusb) in mkinitcpio.conf for ASTER..."
+    if (( DRY_RUN )); then
+      log DRY-RUN "update mkinitcpio.conf MODULES=(mt7925e btusb) in chroot"
+    else
+      chroot_run "$mnt" sed -i 's/^MODULES=.*/MODULES=(mt7925e btusb)/' /etc/mkinitcpio.conf
+      chroot_bash "$mnt" "grep -q 'MODULES=(mt7925e btusb)' /etc/mkinitcpio.conf || echo 'MODULES=(mt7925e btusb)' >> /etc/mkinitcpio.conf"
+    fi
+  fi
+
+  if (( DRY_RUN )); then
+    log DRY-RUN "mkdir -p $mnt/etc/cmdline.d $mnt/boot/EFI/Linux"
+    log DRY-RUN "write $mnt/etc/cmdline.d/params.conf"
+    log DRY-RUN "write $mnt/etc/cmdline.d/root.conf"
+    log DRY-RUN "write $mnt/etc/mkinitcpio.d/${kernel_pkg}.preset"
+    log DRY-RUN "mkinitcpio -p ${kernel_pkg} (in chroot)"
+    log DRY-RUN "efibootmgr --disk $boot_disk --part 1 --create --label BOOT --loader \\EFI\\Linux\\${uki_efi} --unicode"
+    return 0
+  fi
+
+  run mkdir -p "$mnt/etc/cmdline.d" "$mnt/boot/EFI/Linux"
+
+  cat > "$mnt/etc/cmdline.d/params.conf" <<EOF
+${params_line}
+EOF
+
+  cat > "$mnt/etc/cmdline.d/root.conf" <<EOF
+root=LABEL=ROOT rw initrd=\\intel-ucode.img initrd=\\initramfs-${kernel_pkg}.img
+EOF
+
+  cat > "$mnt/etc/mkinitcpio.d/${kernel_pkg}.preset" <<EOF
+ALL_kver="/boot/vmlinuz-${kernel_pkg}"
+PRESETS=('default')
+default_uki="/boot/EFI/Linux/${uki_efi}"
+EOF
+
+  chroot_run "$mnt" mkinitcpio -p "${kernel_pkg}"
+
+  chroot_mount_efivars "$mnt"
+  chroot_bash "$mnt" '
+    bootnum=""
+    while IFS= read -r line; do
+      case "$line" in
+        Boot[0-9]*\ *BOOT\ *)
+          bootnum="${line#Boot}"
+          bootnum="${bootnum%%*}"
+          efibootmgr -B -b "$bootnum" 2>/dev/null || true
+          ;;
+      esac
+    done < <(efibootmgr 2>/dev/null || true)
+  '
+  chroot_run "$mnt" efibootmgr \
+    --create \
+    --disk "$boot_disk" \
+    --part 1 \
+    --label BOOT \
+    --loader "\\EFI\\Linux\\${uki_efi}" \
+    --unicode
+  chroot_umount_efivars "$mnt"
+}
+
 # Clone or fast-forward ansible-playbooks + ansible-collections under /media in chroot.
 ensure_ansible_repos() {
   local mnt="$1"
@@ -847,19 +953,13 @@ task_configure_base() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 8 — locale, timezone, hostname, UKI boot via mkinitcpio preset (arch-chroot)
+# Task 8 — locale, timezone, hostname (arch-chroot)
 # ---------------------------------------------------------------------------
 task_configure_chroot() {
   local host="$1"
   local mnt="$INSTALL_ROOT"
-  local kernel="${HOST_KERNEL[$host]}"
-  local kernel_pkg boot_disk uki_efi
-  kernel_pkg="linux${kernel}"
-  uki_efi="arch-${kernel_pkg}.efi"
-  boot_disk="$(host_disk_path "$host" 0)"
 
-  log INFO "=== Task 8: chroot locale, timezone, hostname, UKI boot ==="
-  log INFO "boot_disk=$boot_disk kernel=${kernel_pkg} uki=${uki_efi}"
+  log INFO "=== Task 8: chroot locale, timezone, hostname (UKI boot deferred to post-Ansible) ==="
 
   require_chroot_ready "$mnt"
 
@@ -871,52 +971,6 @@ task_configure_chroot() {
   chroot_bash "$mnt" "echo 'KEYMAP=us' > /etc/vconsole.conf"
   chroot_bash "$mnt" "grep -qF '${host}.tekne.sv' /etc/hosts || echo '127.0.0.1 localhost ${host}.tekne.sv ${host}' >> /etc/hosts"
   chroot_bash "$mnt" "echo '${host}' > /etc/hostname"
-
-  if [[ "$host" == ASTER ]]; then
-    log INFO "Ensuring MODULES=(mt7925e btusb) in mkinitcpio.conf for ASTER..."
-    if (( DRY_RUN )); then
-      log DRY-RUN "update mkinitcpio.conf MODULES=(mt7925e btusb) in chroot"
-    else
-      chroot_run "$mnt" sed -i 's/^MODULES=.*/MODULES=(mt7925e btusb)/' /etc/mkinitcpio.conf
-      chroot_bash "$mnt" "grep -q 'MODULES=(mt7925e btusb)' /etc/mkinitcpio.conf || echo 'MODULES=(mt7925e btusb)' >> /etc/mkinitcpio.conf"
-    fi
-  fi
-
-  log INFO "Configuring UKI boot via mkinitcpio preset (${uki_efi})..."
-  if (( DRY_RUN )); then
-    log DRY-RUN "mkdir -p $mnt/etc/cmdline.d $mnt/boot/EFI/Linux"
-    log DRY-RUN "write $mnt/etc/cmdline.d/params.conf"
-    log DRY-RUN "write $mnt/etc/cmdline.d/root.conf"
-    log DRY-RUN "write $mnt/etc/mkinitcpio.d/${kernel_pkg}.preset"
-    log DRY-RUN "mkinitcpio -p ${kernel_pkg} (in chroot)"
-    log DRY-RUN "efibootmgr --disk $boot_disk --part 1 --create --label BOOT --loader \\EFI\\Linux\\${uki_efi} --unicode"
-  else
-    run mkdir -p "$mnt/etc/cmdline.d" "$mnt/boot/EFI/Linux"
-
-    cat > "$mnt/etc/cmdline.d/params.conf" <<'EOF'
-kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2
-EOF
-
-    cat > "$mnt/etc/cmdline.d/root.conf" <<EOF
-root=LABEL=ROOT rw initrd=\\intel-ucode.img initrd=\\initramfs-${kernel_pkg}.img
-EOF
-
-    cat > "$mnt/etc/mkinitcpio.d/${kernel_pkg}.preset" <<EOF
-ALL_kver="/boot/vmlinuz-${kernel_pkg}"
-PRESETS=('default')
-default_uki="/boot/EFI/Linux/${uki_efi}"
-EOF
-
-    chroot_run "$mnt" mkinitcpio -p "${kernel_pkg}"
-
-    chroot_run "$mnt" efibootmgr \
-      --create \
-      --disk "$boot_disk" \
-      --part 1 \
-      --label BOOT \
-      --loader "\\EFI\\Linux\\${uki_efi}" \
-      --unicode
-  fi
 
   log INFO "Reloading systemd units..."
   run systemctl daemon-reload
@@ -932,7 +986,7 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# Task 9 — Ansible playbooks in chroot
+# Task 9 — Ansible playbooks in chroot, then UKI boot finalization
 # ---------------------------------------------------------------------------
 task_run_ansible() {
   local host="$1"
@@ -983,8 +1037,10 @@ task_run_ansible() {
       ;;
   esac
 
+  configure_uki_boot "$host" "$mnt"
+
   chroot_cleanup_vault_pass "$mnt"
-  log INFO "Ansible configuration completed."
+  log INFO "Ansible configuration and UKI boot finalization completed."
 }
 
 task_summary() {
@@ -1041,8 +1097,8 @@ Pipeline tasks (use --from-task N):
   5  live pacman repos (THEMIS local-repo / tekne), reflector, pacman -Syy
   6  pacstrap
   7  fstab, pacman.conf copy, symlinks
-  8  chroot locale, mkinitcpio UKI preset, efibootmgr, THEMIS cache binds
-  9  ansible-playbooks (THEMIS: user/os; ASTER/YUGEN: +xfce4; KVM: headless)
+  8  chroot locale, timezone, hostname, THEMIS cache binds
+  9  ansible-playbooks + UKI boot (mkinitcpio preset, efibootmgr)
 EOF
 }
 
