@@ -1,5 +1,7 @@
 ---
 collections:
+  - name: community.general
+  - name: ansible.posix
   # Local monorepo (editable source under ../ansible-collections/tekne/devops)
   - name: tekne.devops
     type: dir

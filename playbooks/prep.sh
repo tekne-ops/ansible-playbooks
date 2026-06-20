@@ -483,22 +483,19 @@ CHROOT_EOF
     fi
 
     log "Running ansible for $host..."
-    # Task 1: Install collections and overall requirements for ansible-playbook to run
-    log "Installing Ansible community.general collection in chroot (required by ansible-role-xfce4)..."
-    arch-chroot /mnt ansible-galaxy collection install community.general --force
-    arch-chroot /mnt ansible-galaxy collection install -r /media/ansible-playbooks/requirements.yml -p /media/ansible-playbooks/collections
-    arch-chroot /mnt ansible-galaxy collection install -r /media/ansible-playbooks/requirements.yml
-    log "Installing Ansible community.general and requirements... completed"
-    
-    # Task 2: Run ansible-role-user, ansible-role-gpu, for all hosts
-    log "Ansible roles user and gpu running..."
-    arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags user,os --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
-    log "Ansible roles user and gpu completed."
+    log "Installing Ansible collections from requirements.yml..."
+    arch-chroot /mnt ansible-galaxy collection install -r /media/ansible-playbooks/requirements.yml --force
+    log "Installing Ansible collections... completed"
 
-    # Task 3: Run ansible-role-xfce4 for ASTER and YUGEN only
+    log "Ansible roles user and os running..."
+    arch-chroot /mnt env ANSIBLE_CONFIG=/media/ansible-playbooks/playbooks/ansible.cfg \
+        ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags user,os --ask-vault-pass
+    log "Ansible roles user and os completed."
+
     if [[ "$host" == "ASTER" || "$host" == "YUGEN" ]]; then
         log "Running ansible roles xfce4 for $host..."
-        arch-chroot /mnt ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags xfce4 --ask-vault-pass -e@/media/ansible-playbooks/group_vars_all/vault
+        arch-chroot /mnt env ANSIBLE_CONFIG=/media/ansible-playbooks/playbooks/ansible.cfg \
+            ansible-playbook /media/ansible-playbooks/playbooks/main.yml --tags xfce4 --ask-vault-pass
         log "Ansible roles xfce4 completed for $host."
     fi
 

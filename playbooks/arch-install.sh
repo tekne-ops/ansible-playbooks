@@ -20,6 +20,8 @@ readonly VERSION="1.1.0"
 
 readonly INSTALL_ROOT=/mnt
 readonly ANSIBLE_ROOT=/media/ansible-playbooks
+readonly ANSIBLE_COLLECTIONS_ROOT=/media/ansible-collections
+readonly CHROOT_VAULT_PASS=/root/.ansible_vault_pass
 readonly VALID_HOSTS=(THEMIS ASTER YUGEN KVM)
 
 DRY_RUN=0
@@ -238,7 +240,7 @@ require_chroot_cmds() {
   if (( DRY_RUN )); then
     return 0
   fi
-  for cmd in git ansible-playbook ansible-galaxy mkinitcpio locale-gen; do
+  for cmd in git ansible-playbook ansible-galaxy ansible-vault mkinitcpio locale-gen; do
     chroot_has_cmd "$mnt" "$cmd" || missing+=("$cmd")
   done
   (( ${#missing[@]} == 0 )) || die "Missing commands in chroot: ${missing[*]}"
@@ -262,6 +264,117 @@ wait_for_network() {
   die "Network unavailable after $tries attempts."
 }
 
+# Copy vault password file into chroot (live-ISO paths are not visible in arch-chroot).
+chroot_stage_vault_pass() {
+  local mnt="$1"
+  if [[ -z "$VAULT_PASS_FILE" ]]; then
+    return 0
+  fi
+  log INFO "Staging vault password file at ${CHROOT_VAULT_PASS} in chroot..."
+  run mkdir -p "$mnt/root"
+  run chmod 700 "$mnt/root"
+  run cp "$VAULT_PASS_FILE" "$mnt${CHROOT_VAULT_PASS}"
+  run chmod 600 "$mnt${CHROOT_VAULT_PASS}"
+}
+
+chroot_cleanup_vault_pass() {
+  local mnt="$1"
+  if [[ -z "$VAULT_PASS_FILE" ]]; then
+    return 0
+  fi
+  run rm -f "$mnt${CHROOT_VAULT_PASS}"
+}
+
+# Clone or fast-forward ansible-playbooks + ansible-collections under /media in chroot.
+ensure_ansible_repos() {
+  local mnt="$1"
+  local path url
+
+  chroot_run "$mnt" mkdir -p /media
+
+  path="$ANSIBLE_ROOT"
+  url=https://github.com/tekne-ops/ansible-playbooks
+  if [[ -d "${mnt}${path}/.git" ]]; then
+    log INFO "Refreshing ansible-playbooks (git pull --ff-only)..."
+    chroot_run "$mnt" git -C "$path" pull --ff-only
+  elif [[ -e "${mnt}${path}" ]]; then
+    log WARN "Removing incomplete ${path} before clone"
+    run rm -rf "${mnt}${path}"
+    chroot_run "$mnt" git clone "$url" "$path"
+  else
+    log INFO "Cloning ansible-playbooks into ${path}..."
+    chroot_run "$mnt" git clone "$url" "$path"
+  fi
+
+  path="$ANSIBLE_COLLECTIONS_ROOT"
+  url=https://github.com/tekne-ops/ansible-collections
+  if [[ -d "${mnt}${path}/.git" ]]; then
+    log INFO "Refreshing ansible-collections (git pull --ff-only)..."
+    chroot_run "$mnt" git -C "$path" pull --ff-only
+  elif [[ -e "${mnt}${path}" ]]; then
+    log WARN "Removing incomplete ${path} before clone"
+    run rm -rf "${mnt}${path}"
+    chroot_run "$mnt" git clone "$url" "$path"
+  else
+    log INFO "Cloning ansible-collections into ${path}..."
+    chroot_run "$mnt" git clone "$url" "$path"
+  fi
+}
+
+# Decrypt vault and verify keys required for this host (needs staged vault password file).
+require_vault_vars() {
+  local host="$1"
+  local mnt="$2"
+  local vault_file="${ANSIBLE_ROOT}/group_vars_all/vault"
+  local content
+
+  if (( DRY_RUN )); then
+    log DRY-RUN "require_vault_vars: decrypt ${vault_file} and check user_password$(
+      [[ "$host" == THEMIS ]] && printf ' + git_token'
+    )"
+    return 0
+  fi
+
+  if [[ -z "$VAULT_PASS_FILE" ]]; then
+    log WARN "Vault preflight skipped (--ask-vault-pass); use --vault-password-file to validate secrets before ansible runs"
+    return 0
+  fi
+
+  log INFO "Preflight: validating vault secrets for ${host}..."
+  if ! content="$(arch-chroot "$mnt" ansible-vault view "$vault_file" \
+      --vault-password-file "$CHROOT_VAULT_PASS" 2>&1)"; then
+    die "Vault decrypt failed: ${content}"
+  fi
+
+  if ! grep -qE '^user_password:' <<< "$content"; then
+    die "Vault missing user_password (required for --tags user)"
+  fi
+  if ! grep -qE '^user_password: +[^[:space:]]' <<< "$content"; then
+    die "Vault user_password is empty (required for --tags user)"
+  fi
+
+  if [[ "$host" == THEMIS ]]; then
+    if ! grep -qE '^git_token:' <<< "$content"; then
+      die "Vault missing git_token (required for THEMIS --tags os)"
+    fi
+    if ! grep -qE '^git_token: +[^[:space:]]' <<< "$content"; then
+      die "Vault git_token is empty (required for THEMIS --tags os)"
+    fi
+  fi
+
+  log INFO "Vault preflight OK"
+}
+
+ansible_chroot_playbook() {
+  local mnt="$1" tags="$2"
+  shift 2
+  chroot_run "$mnt" env ANSIBLE_CONFIG="${ANSIBLE_ROOT}/playbooks/ansible.cfg" \
+    ansible-playbook "${ANSIBLE_ROOT}/playbooks/main.yml" \
+    --tags "$tags" \
+    "${vault_args[@]}" \
+    "$@"
+}
+
 partprobe_host() {
   local host="$1"
   run partprobe "$(host_disk_path "$host" 0)" "$(host_disk_path "$host" 1)" 2>/dev/null || true
@@ -269,45 +382,6 @@ partprobe_host() {
 
 host_slug() {
   echo "$1" | tr '[:upper:]' '[:lower:]'
-}
-
-# Root UUID for UKI Cmdline=root=UUID=… (fstab first, then blkid on ROOT partition).
-root_fs_uuid_from_fstab() {
-  local mnt="$1" host="$2"
-  local fstab="$mnt/etc/fstab" line fs mountpoint uuid
-
-  [[ -f "$fstab" ]] || die "fstab not found at $fstab"
-  while IFS= read -r line; do
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "${line//[[:space:]]/}" ]] && continue
-    read -r fs mountpoint _ <<< "$line"
-    if [[ "$mountpoint" == / ]]; then
-      if [[ "$fs" == UUID=* ]]; then
-        echo "${fs#UUID=}"
-        return 0
-      fi
-      if [[ "$fs" == LABEL=ROOT ]]; then
-        uuid="$(blkid -s UUID -o value -t LABEL=ROOT 2>/dev/null || true)"
-        [[ -n "$uuid" ]] && { echo "$uuid"; return 0; }
-      fi
-    fi
-  done < "$fstab"
-
-  uuid="$(blkid -s UUID -o value "$(host_part_path "$host" 0 2)" 2>/dev/null || true)"
-  [[ -n "$uuid" ]] || die "Could not determine root filesystem UUID"
-  echo "$uuid"
-}
-
-# Kernel cmdline embedded in the UKI (initrds are bundled; no initrd= paths).
-uki_cmdline_for_host() {
-  local host="$1" root_uuid="$2"
-  local line
-  line="root=UUID=${root_uuid} rw quiet loglevel=3"
-  line+=" kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off"
-  line+=" systemd.show_status=false rd.udev.log_level=2"
-  line+="${HOST_EFI_INTEL[$host]:-}"
-  line+="${HOST_EFI_EXTRA[$host]:-}"
-  printf '%s' "$line"
 }
 
 themis_cache_bind_mounts() {
@@ -476,8 +550,8 @@ task_format_nvme() {
     fi
     run nvme format "$ctrl" \
       --namespace-id=1 \
-      --lbaf=0 \
-      --ses=2 \
+      --lbaf=1 \
+      --ses=1 \
       --ms=1 \
       --reset \
       --force
@@ -773,20 +847,19 @@ task_configure_base() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 8 — locale, timezone, hostname, UKI boot, initramfs (arch-chroot)
+# Task 8 — locale, timezone, hostname, UKI boot via mkinitcpio preset (arch-chroot)
 # ---------------------------------------------------------------------------
 task_configure_chroot() {
   local host="$1"
   local mnt="$INSTALL_ROOT"
   local kernel="${HOST_KERNEL[$host]}"
-  local kernel_pkg host_slug uki_name boot_disk root_uuid uki_cmdline
+  local kernel_pkg boot_disk uki_efi
   kernel_pkg="linux${kernel}"
-  host_slug="$(host_slug "$host")"
-  uki_name="${host_slug}-linux.efi"
+  uki_efi="arch-${kernel_pkg}.efi"
   boot_disk="$(host_disk_path "$host" 0)"
 
   log INFO "=== Task 8: chroot locale, timezone, hostname, UKI boot ==="
-  log INFO "boot_disk=$boot_disk kernel=${kernel_pkg} uki=${uki_name}"
+  log INFO "boot_disk=$boot_disk kernel=${kernel_pkg} uki=${uki_efi}"
 
   require_chroot_ready "$mnt"
 
@@ -809,67 +882,40 @@ task_configure_chroot() {
     fi
   fi
 
-  log INFO "Generating initramfs (${kernel_pkg})..."
-  chroot_run "$mnt" mkinitcpio -p "${kernel_pkg}"
-
-  log INFO "Configuring UKI boot (${uki_name})..."
+  log INFO "Configuring UKI boot via mkinitcpio preset (${uki_efi})..."
   if (( DRY_RUN )); then
-    log DRY-RUN "mkdir -p $mnt/boot/EFI/Linux $mnt/etc/kernel"
-    log DRY-RUN "write $mnt/etc/kernel/uki.conf (Output=/boot/EFI/Linux/${uki_name})"
-    log DRY-RUN "ukify build --config /etc/kernel/uki.conf (in chroot)"
-    log DRY-RUN "efibootmgr -B (delete all boot entries)"
-    log DRY-RUN "efibootmgr --disk $boot_disk --part 1 --create --label BOOT --loader \\EFI\\Linux\\${uki_name}"
-    log DRY-RUN "write $mnt/etc/pacman.d/hooks/90-uki.hook (Target=${kernel_pkg}, intel-ucode)"
+    log DRY-RUN "mkdir -p $mnt/etc/cmdline.d $mnt/boot/EFI/Linux"
+    log DRY-RUN "write $mnt/etc/cmdline.d/params.conf"
+    log DRY-RUN "write $mnt/etc/cmdline.d/root.conf"
+    log DRY-RUN "write $mnt/etc/mkinitcpio.d/${kernel_pkg}.preset"
+    log DRY-RUN "mkinitcpio -p ${kernel_pkg} (in chroot)"
+    log DRY-RUN "efibootmgr --disk $boot_disk --part 1 --create --label BOOT --loader \\EFI\\Linux\\${uki_efi} --unicode"
   else
-    root_uuid="$(root_fs_uuid_from_fstab "$mnt" "$host")"
-    uki_cmdline="$(uki_cmdline_for_host "$host" "$root_uuid")"
+    run mkdir -p "$mnt/etc/cmdline.d" "$mnt/boot/EFI/Linux"
 
-    run mkdir -p "$mnt/boot/EFI/Linux" "$mnt/etc/kernel"
-
-    cat > "$mnt/etc/kernel/uki.conf" <<EOF
-[UKI]
-# Where final EFI binary goes
-Output=/boot/EFI/Linux/${uki_name}
-
-# Kernel + initrds (microcode must precede main initramfs)
-Kernel=/boot/vmlinuz-${kernel_pkg}
-Initrd=/boot/intel-ucode.img
-Initrd=/boot/initramfs-${kernel_pkg}.img
-
-# Kernel command line
-Cmdline=${uki_cmdline}
-
-# OS metadata
-OSRelease=@/etc/os-release
-
-# Optional splash
-Splash=/usr/share/systemd/bootctl/splash-arch.bmp
+    cat > "$mnt/etc/cmdline.d/params.conf" <<'EOF'
+kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2
 EOF
 
-    chroot_run "$mnt" ukify build --config /etc/kernel/uki.conf
+    cat > "$mnt/etc/cmdline.d/root.conf" <<EOF
+root=LABEL=ROOT rw initrd=\\intel-ucode.img initrd=\\initramfs-${kernel_pkg}.img
+EOF
 
-    chroot_bash "$mnt" 'efibootmgr -B 2>/dev/null || true'
+    cat > "$mnt/etc/mkinitcpio.d/${kernel_pkg}.preset" <<EOF
+ALL_kver="/boot/vmlinuz-${kernel_pkg}"
+PRESETS=('default')
+default_uki="/boot/EFI/Linux/${uki_efi}"
+EOF
+
+    chroot_run "$mnt" mkinitcpio -p "${kernel_pkg}"
+
     chroot_run "$mnt" efibootmgr \
+      --create \
       --disk "$boot_disk" \
       --part 1 \
-      --create \
       --label BOOT \
-      --loader "\\EFI\\Linux\\${uki_name}"
-
-    run mkdir -p "$mnt/etc/pacman.d/hooks"
-    cat > "$mnt/etc/pacman.d/hooks/90-uki.hook" <<EOF
-[Trigger]
-Type = Package
-Operation = Install
-Operation = Upgrade
-Target = ${kernel_pkg}
-Target = intel-ucode
-
-[Action]
-Description = Rebuilding Unified Kernel Image...
-When = PostTransaction
-Exec = /usr/bin/ukify build --config /etc/kernel/uki.conf
-EOF
+      --loader "\\EFI\\Linux\\${uki_efi}" \
+      --unicode
   fi
 
   log INFO "Reloading systemd units..."
@@ -893,7 +939,7 @@ task_run_ansible() {
   local mnt="$INSTALL_ROOT"
   local -a vault_args=()
 
-  log INFO "=== Task 9: Ansible (user, network-host; xfce4 on ASTER/YUGEN/KVM) ==="
+  log INFO "=== Task 9: Ansible (host-specific tags) ==="
 
   require_chroot_ready "$mnt"
   require_chroot_cmds "$mnt"
@@ -901,38 +947,43 @@ task_run_ansible() {
 
   if [[ -n "$VAULT_PASS_FILE" ]]; then
     [[ -r "$VAULT_PASS_FILE" ]] || die "Vault password file not readable: $VAULT_PASS_FILE"
-    vault_args=(--vault-password-file "$VAULT_PASS_FILE")
+    chroot_stage_vault_pass "$mnt"
+    vault_args=(--vault-password-file "${CHROOT_VAULT_PASS}")
   else
     vault_args=(--ask-vault-pass)
   fi
 
-  if [[ -d "${mnt}${ANSIBLE_ROOT}/.git" ]]; then
-    log INFO "ansible-playbooks already present at $ANSIBLE_ROOT, skipping clone"
-  else
-    chroot_run "$mnt" mkdir -p /media
-    chroot_run "$mnt" git clone https://github.com/tekne-ops/ansible-playbooks "$ANSIBLE_ROOT"
-  fi
+  ensure_ansible_repos "$mnt"
+  require_vault_vars "$host" "$mnt"
 
-  log INFO "Installing Ansible collections..."
-  chroot_run "$mnt" ansible-galaxy collection install community.general --force
-  chroot_run "$mnt" ansible-galaxy collection install -r "${ANSIBLE_ROOT}/requirements.yml" \
-    -p "${ANSIBLE_ROOT}/collections" --force
+  log INFO "Installing Ansible collections from ${ANSIBLE_ROOT}/requirements.yml..."
   chroot_run "$mnt" ansible-galaxy collection install -r "${ANSIBLE_ROOT}/requirements.yml" --force
 
-  log INFO "Running ansible-playbook (tags: user, network-host)..."
-  chroot_run "$mnt" ansible-playbook "${ANSIBLE_ROOT}/playbooks/main.yml" \
-    --tags user,network-host \
-    "${vault_args[@]}" \
-    -e@"${ANSIBLE_ROOT}/group_vars_all/vault"
+  case "$host" in
+    THEMIS)
+      log INFO "Running ansible-playbook for THEMIS (tags: user, network-host, os)..."
+      ansible_chroot_playbook "$mnt" "user,network-host,os" -e install_chroot_phase=true
+      ;;
+    ASTER)
+      log INFO "Running ansible-playbook for ASTER (tags: user, network-host, xfce4; WiFi connect deferred)..."
+      ansible_chroot_playbook "$mnt" "user,network-host,xfce4" \
+        -e network_connect_wifi=false \
+        -e install_chroot_phase=true
+      ;;
+    YUGEN)
+      log INFO "Running ansible-playbook for YUGEN (tags: user, network-host, xfce4)..."
+      ansible_chroot_playbook "$mnt" "user,network-host,xfce4" -e install_chroot_phase=true
+      ;;
+    KVM)
+      log INFO "Running ansible-playbook for KVM (tags: user, network-host; headless, no xfce4)..."
+      ansible_chroot_playbook "$mnt" "user,network-host" -e install_chroot_phase=true
+      ;;
+    *)
+      die "Unknown host for Ansible: $host"
+      ;;
+  esac
 
-  if [[ "$host" == ASTER || "$host" == YUGEN || "$host" == KVM ]]; then
-    log INFO "Running ansible-playbook (tags: xfce4) for $host..."
-    chroot_run "$mnt" ansible-playbook "${ANSIBLE_ROOT}/playbooks/main.yml" \
-      --tags xfce4 \
-      "${vault_args[@]}" \
-      -e@"${ANSIBLE_ROOT}/group_vars_all/vault"
-  fi
-
+  chroot_cleanup_vault_pass "$mnt"
   log INFO "Ansible configuration completed."
 }
 
@@ -990,8 +1041,8 @@ Pipeline tasks (use --from-task N):
   5  live pacman repos (THEMIS local-repo / tekne), reflector, pacman -Syy
   6  pacstrap
   7  fstab, pacman.conf copy, symlinks
-  8  chroot locale, UKI boot, mkinitcpio, THEMIS cache binds
-  9  ansible-playbooks (xfce4 on ASTER, YUGEN, KVM)
+  8  chroot locale, mkinitcpio UKI preset, efibootmgr, THEMIS cache binds
+  9  ansible-playbooks (THEMIS: user/os; ASTER/YUGEN: +xfce4; KVM: headless)
 EOF
 }
 

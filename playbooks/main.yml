@@ -1,6 +1,6 @@
 ---
-# Workstation Playbook
-# Runs on ASTER, YUGEN, and KVM hosts (THEMIS: use server playbook / tags)
+# Host configuration playbook
+# Runs on ASTER, YUGEN, KVM (workstation) and THEMIS (server tags)
 #
 # Usage:
 #   ansible-playbook main.yml --ask-vault-pass
@@ -20,13 +20,13 @@
 # NOTE: The bootstrap role will pause for OneDrive authentication.
 # Follow the on-screen instructions to authenticate with Microsoft.
 
-- name: Configure workstation
+- name: Configure host
   hosts: localhost
   connection: local
   become: true
 
   vars_files:
-    - vault
+    - ../group_vars_all/vault
 
   pre_tasks:
     - name: Read hostname from /etc/hostname
@@ -45,12 +45,12 @@
       ansible.builtin.debug:
         msg: "Detected hostname: {{ current_hostname }}"
 
-    - name: Verify hostname is ASTER, YUGEN, or KVM
+    - name: Verify hostname is a known host profile
       ansible.builtin.assert:
         that:
-          - current_hostname in ['ASTER', 'YUGEN', 'KVM']
+          - current_hostname in ['ASTER', 'YUGEN', 'KVM', 'THEMIS']
         fail_msg: >-
-          This playbook only runs on ASTER, YUGEN, or KVM.
+          Unknown host profile. Expected ASTER, YUGEN, KVM, or THEMIS.
           Current hostname: {{ current_hostname }}
         success_msg: "Hostname verified: {{ current_hostname }}"
 
