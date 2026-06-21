@@ -226,7 +226,8 @@ def _partition_base() -> dict[str, Any]:
 def _partition_esp() -> dict[str, Any]:
     part = _partition_base()
     part.update({
-        "flags": ["boot"],
+        # esp + boot: archinstall get_efi_partition() / get_boot_partition() (matches parted "set 1 esp on")
+        "flags": ["boot", "esp"],
         "fs_type": "fat32",
         "size": _size_mib(ESP_SIZE_MIB),
         "start": _size_mib(1),
@@ -374,12 +375,16 @@ def build_config(
 def validate_config(config: dict[str, Any]) -> None:
     """Ensure disk_config matches archinstall on current ISO (py3.14)."""
     disk = config.get("disk_config") or {}
+    has_esp = False
     for dm in disk.get("device_modifications") or []:
         for idx, part in enumerate(dm.get("partitions") or []):
             if "dev_path" not in part:
                 raise ValueError(
                     f"partition[{idx}] missing 'dev_path' — update generate_archinstall_config.py",
                 )
+            flags = part.get("flags") or []
+            if "esp" in flags and part.get("mountpoint"):
+                has_esp = True
             for key in ("start", "size"):
                 size = part.get(key)
                 if not isinstance(size, dict) or size.get("sector_size") is None:
@@ -392,6 +397,10 @@ def validate_config(config: dict[str, Any]) -> None:
                         f"partition[{idx}].{key} uses Percent (unsupported on current archinstall); "
                         f"use MiB from disk size",
                     )
+    if not has_esp:
+        raise ValueError(
+            "disk_config has no ESP partition (flags must include 'esp' with a mountpoint)",
+        )
 
 
 def build_creds_template(root_password: str | None = None) -> dict[str, Any]:

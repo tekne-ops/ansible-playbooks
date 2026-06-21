@@ -244,6 +244,9 @@ for dm in c.get("disk_config", {}).get("device_modifications", []):
     for part in dm.get("partitions", []):
         if "dev_path" not in part:
             sys.exit("config.json missing dev_path — update playbooks/lib/generate_archinstall_config.py")
+        flags = part.get("flags") or []
+        if part.get("mountpoint") == "/boot" and "esp" not in flags:
+            sys.exit("config.json ESP missing 'esp' flag — update generate_archinstall_config.py")
         for key in ("start", "size"):
             if not isinstance(part.get(key), dict) or part[key].get("sector_size") is None:
                 sys.exit(f"config.json missing {key}.sector_size — update generate_archinstall_config.py")
