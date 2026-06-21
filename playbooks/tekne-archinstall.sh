@@ -11,9 +11,10 @@
 # Usage (from Arch live ISO):
 #   ./tekne-archinstall.sh
 #   ./tekne-archinstall.sh ASTER
-#   ./tekne-archinstall.sh --dry-run YUGEN
+#   ./tekne-archinstall.sh --dry-run KVM
 #   ./tekne-archinstall.sh --vault-password-file ~/.vault_pass THEMIS
 #   ./tekne-archinstall.sh --disk0 /dev/nvme0n1 --disk1 /dev/nvme1n1 ASTER
+#   ./tekne-archinstall.sh --disk0 /dev/vda --disk1 /dev/vdb KVM
 #
 # Environment:
 #   TEKNE_INSTALL_ROOT       Install mount (default: /mnt; pass to archinstall --mountpoint)
@@ -27,7 +28,6 @@ SCRIPT_NAME="${0##*/}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GENERATOR="${SCRIPT_DIR}/lib/generate_archinstall_config.py"
 ARCH_INSTALL_LIB="${SCRIPT_DIR}/arch-install.sh"
-VALID_PROFILE_HOSTS=(THEMIS ASTER YUGEN)
 ARCHINSTALL_MOUNT="${TEKNE_INSTALL_ROOT:-/mnt}"
 
 HOST=""
@@ -56,16 +56,18 @@ Options:
   --interactive                 Run archinstall with silent=false (TUI prompts)
   -h, --help                    Show this help
 
-Hosts:
+Hosts (profiles from arch-install.sh):
   ASTER    laptop  (nvme0 BOOT/ROOT, nvme1 HOME)
   YUGEN    pc      (nvme0 BOOT/ROOT, nvme1 DOCKER)
   THEMIS   server  (nvme0 BOOT/ROOT, nvme1 DOCKER; stages local-repo)
+  KVM      vm      (vda BOOT/ROOT, vdb HOME; headless, no xfce4)
 
 Steps:
   1. Generate archinstall config.json (+ creds.json) for the host profile
   2. Run: archinstall --config config.json --creds creds.json --mountpoint $ARCHINSTALL_MOUNT
   3. Run arch-install.sh task 9: post-archinstall labels, Ansible chroot, UKI boot
 
+After reboot see the post-install banner (print_post_install_steps from arch-install.sh).
 EOF
 }
 
@@ -84,22 +86,24 @@ prompt_hostname() {
   echo "  1) ASTER   — laptop"
   echo "  2) YUGEN   — workstation"
   echo "  3) THEMIS  — server"
+  echo "  4) KVM     — VM (headless)"
   echo
-  read -r -p "Enter hostname or number [1-3]: " choice
+  read -r -p "Enter hostname or number [1-4]: " choice
   case "$choice" in
     1|ASTER|aster) HOST=ASTER ;;
     2|YUGEN|yugen) HOST=YUGEN ;;
     3|THEMIS|themis) HOST=THEMIS ;;
+    4|KVM|kvm) HOST=KVM ;;
     *) die "Invalid selection: $choice" ;;
   esac
 }
 
 validate_host() {
   local h="$1" valid
-  for valid in "${VALID_PROFILE_HOSTS[@]}"; do
+  for valid in "${VALID_HOSTS[@]}"; do
     [[ "$h" == "$valid" ]] && return 0
   done
-  die "Unknown host '$h'. Valid: ${VALID_PROFILE_HOSTS[*]}"
+  die "Unknown host '$h'. Valid: ${VALID_HOSTS[*]}"
 }
 
 parse_args() {
@@ -133,7 +137,7 @@ parse_args() {
         CONFIG_DIR=$1
         ;;
       -h|--help) usage; exit 0 ;;
-      ASTER|YUGEN|THEMIS) HOST="$1" ;;
+      ASTER|YUGEN|THEMIS|KVM) HOST="$1" ;;
       *) die "Unknown argument: $1 (try --help)" ;;
     esac
     shift
@@ -297,7 +301,11 @@ main() {
   run_post_archinstall
 
   log INFO "=== Tekne archinstall complete for $HOST ==="
-  log INFO "After reboot, run playbooks/workstation.sh (ASTER/YUGEN) or server tags on THEMIS."
+  if (( ! DRY_RUN )); then
+    print_post_install_steps "$HOST"
+  else
+    log INFO "After reboot: see print_post_install_steps in arch-install.sh for $HOST"
+  fi
 }
 
 main "$@"
