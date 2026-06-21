@@ -154,7 +154,9 @@ require_tools() {
     command -v archinstall &>/dev/null || missing+=("archinstall")
   fi
   command -v python3 &>/dev/null || missing+=("python3")
-  [[ -f "$GENERATOR" ]] || missing+=("$GENERATOR")
+  if [[ ! -f "$GENERATOR" ]]; then
+    die "Missing ${GENERATOR}. Update your ansible-playbooks checkout (git pull) so playbooks/lib/ is present."
+  fi
   (( ${#missing[@]} == 0 )) || die "Missing: ${missing[*]}"
 }
 
