@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import uuid
 from copy import deepcopy
@@ -21,6 +22,8 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 ESP_SIZE_MIB = 1024
+# Reserve space at disk end for backup GPT header + alignment (archinstall validates gpt_end).
+GPT_TAIL_RESERVE_MIB = 4
 TIMEZONE = "America/El_Salvador"
 F2FS_MOUNT_OPTS = [
     "compress_algorithm=zstd:6",
@@ -183,8 +186,29 @@ def _size_mib(value: int) -> dict[str, Any]:
     return {"sector_size": _sector_size(), "unit": "MiB", "value": value}
 
 
-def _size_percent(value: int) -> dict[str, Any]:
-    return {"sector_size": _sector_size(), "unit": "Percent", "value": value}
+def disk_size_mib(device: str) -> int:
+    """Query block device size in MiB (live ISO / install host)."""
+    path = Path(device)
+    if not path.is_block_device():
+        raise ValueError(f"Block device not found: {device}")
+    proc = subprocess.run(
+        ["blockdev", "--getsize64", device],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return int(proc.stdout.strip()) // (1024 * 1024)
+
+
+def remaining_partition_mib(disk_mib: int, start_mib: int) -> int:
+    """MiB for a partition from start_mib to near disk end (no Percent unit)."""
+    rem = disk_mib - start_mib - GPT_TAIL_RESERVE_MIB
+    if rem < 64:
+        raise ValueError(
+            f"Disk too small ({disk_mib} MiB): need >{start_mib + GPT_TAIL_RESERVE_MIB + 64} MiB "
+            f"for partition starting at {start_mib} MiB",
+        )
+    return rem
 
 
 def _partition_base() -> dict[str, Any]:
@@ -211,7 +235,7 @@ def _partition_esp() -> dict[str, Any]:
     return part
 
 
-def _partition_f2fs(mountpoint: str, start_mib: int, use_percent: bool = True) -> dict[str, Any]:
+def _partition_f2fs(mountpoint: str, start_mib: int, size_mib: int) -> dict[str, Any]:
     part = _partition_base()
     part.update({
         "flags": [],
@@ -219,7 +243,7 @@ def _partition_f2fs(mountpoint: str, start_mib: int, use_percent: bool = True) -
         "start": _size_mib(start_mib),
         "mount_options": F2FS_MOUNT_OPTS.copy(),
         "mountpoint": mountpoint,
-        "size": _size_percent(100),
+        "size": _size_mib(size_mib),
     })
     return part
 
@@ -232,6 +256,10 @@ def build_disk_config(
 ) -> dict[str, Any]:
     """Two-disk layout: disk0 = ESP + ROOT, disk1 = HOME or DOCKER."""
     root_start = ESP_SIZE_MIB + 1
+    disk0_mib = disk_size_mib(disk0)
+    disk1_mib = disk_size_mib(disk1)
+    root_size_mib = remaining_partition_mib(disk0_mib, root_start)
+    disk1_size_mib = remaining_partition_mib(disk1_mib, disk1_start_mib)
     return {
         "config_type": "manual_partitioning",
         "device_modifications": [
@@ -240,14 +268,14 @@ def build_disk_config(
                 "wipe": True,
                 "partitions": [
                     _partition_esp(),
-                    _partition_f2fs("/", root_start),
+                    _partition_f2fs("/", root_start, root_size_mib),
                 ],
             },
             {
                 "device": disk1,
                 "wipe": True,
                 "partitions": [
-                    _partition_f2fs(disk1_mount, disk1_start_mib),
+                    _partition_f2fs(disk1_mount, disk1_start_mib, disk1_size_mib),
                 ],
             },
         ],
@@ -358,6 +386,11 @@ def validate_config(config: dict[str, Any]) -> None:
                     raise ValueError(
                         f"partition[{idx}].{key} missing sector_size object "
                         f"— update generate_archinstall_config.py",
+                    )
+                if size.get("unit") == "Percent":
+                    raise ValueError(
+                        f"partition[{idx}].{key} uses Percent (unsupported on current archinstall); "
+                        f"use MiB from disk size",
                     )
 
 

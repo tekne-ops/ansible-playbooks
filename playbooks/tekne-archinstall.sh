@@ -247,6 +247,8 @@ for dm in c.get("disk_config", {}).get("device_modifications", []):
         for key in ("start", "size"):
             if not isinstance(part.get(key), dict) or part[key].get("sector_size") is None:
                 sys.exit(f"config.json missing {key}.sector_size — update generate_archinstall_config.py")
+            if part[key].get("unit") == "Percent":
+                sys.exit(f"config.json uses Percent for {key} — update generate_archinstall_config.py")
 print("config.json schema OK for archinstall")
 PY
   log INFO "Generated ${CONFIG_DIR}/config.json and ${CONFIG_DIR}/creds.json"
