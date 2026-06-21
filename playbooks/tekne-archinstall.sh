@@ -259,8 +259,10 @@ run_archinstall() {
   fi
 
   wait_for_network
-  if ! "${cmd[@]}"; then
-    log ERROR "archinstall failed (exit $?). Check /var/log/archinstall/install.log"
+  "${cmd[@]}"
+  local rc=$?
+  if (( rc != 0 )); then
+    log ERROR "archinstall failed (exit ${rc}). Check /var/log/archinstall/install.log"
     [[ -f /var/log/archinstall/install.log ]] && tail -30 /var/log/archinstall/install.log >&2 || true
     die "archinstall failed — see /var/log/archinstall/install.log"
   fi

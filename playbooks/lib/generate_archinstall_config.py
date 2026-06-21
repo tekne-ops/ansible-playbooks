@@ -174,12 +174,17 @@ def _uid() -> str:
     return str(uuid.uuid4())
 
 
+def _sector_size() -> dict[str, Any]:
+    """archinstall >=2.8 (py3.14 ISO) requires sector_size object, not null."""
+    return {"value": 512, "unit": "B"}
+
+
 def _size_mib(value: int) -> dict[str, Any]:
-    return {"sector_size": None, "unit": "MiB", "value": value}
+    return {"sector_size": _sector_size(), "unit": "MiB", "value": value}
 
 
 def _size_percent(value: int) -> dict[str, Any]:
-    return {"sector_size": None, "unit": "Percent", "value": value}
+    return {"sector_size": _sector_size(), "unit": "Percent", "value": value}
 
 
 def _partition_esp() -> dict[str, Any]:
