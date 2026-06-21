@@ -254,11 +254,37 @@ _arch_install_dir() {
 network_is_up() {
   local target
   for target in 1.1.1.1 9.9.9.9 8.8.8.8; do
-    if timeout 3 ping -c1 -W2 "$target" &>/dev/null; then
+    if ping -c1 -W3 "$target" &>/dev/null 2>&1; then
       return 0
     fi
   done
   return 1
+}
+
+live_bring_up_network() {
+  log INFO "Starting live ISO network services (systemd-networkd, iwd)..."
+  systemctl start systemd-networkd.service 2>/dev/null || true
+  systemctl start systemd-resolved.service 2>/dev/null || true
+  systemctl start iwd.service 2>/dev/null || true
+  sleep 3
+}
+
+log_network_diagnostics() {
+  local line
+  log ERROR "Network diagnostics (connect WiFi/Ethernet on the live ISO):"
+  while IFS= read -r line; do
+    log ERROR "  ${line}"
+  done < <(ip -br link 2>/dev/null || true)
+  while IFS= read -r line; do
+    log ERROR "  route: ${line}"
+  done < <(ip route 2>/dev/null || true)
+  if command -v resolvectl &>/dev/null; then
+    while IFS= read -r line; do
+      log ERROR "  ${line}"
+    done < <(resolvectl status 2>/dev/null | head -15 || true)
+  fi
+  log ERROR "  Try: iwctl station <iface> connect esher --passphrase '<pass>'"
+  log ERROR "  Or re-run with --skip-network-wait after connecting manually."
 }
 
 live_wifi_iface() {
@@ -316,10 +342,13 @@ connect_wifi_live() {
 
   [[ "$host" == ASTER ]] || return 0
   network_is_up && return 0
-  live_has_ethernet_carrier && return 0
 
   ssid="${TEKNE_WIFI_SSID:-esher}"
   iface="$(live_wifi_iface)"
+  if live_has_ethernet_carrier; then
+    log INFO "Ethernet link up; skipping WiFi connect (waiting for DHCP/routing)."
+    return 0
+  fi
   if [[ -z "$iface" ]]; then
     log WARN "ASTER: no WiFi interface (wl*) found — connect Ethernet or WiFi manually (nmtui/iwctl)."
     return 0
@@ -361,28 +390,60 @@ ensure_live_network() {
   fi
   if network_is_up; then
     log INFO "Network already up."
+    export TEKNE_NETWORK_LIVE_OK=1
     return 0
   fi
+  live_bring_up_network
   connect_wifi_live "$host"
   wait_for_network
+  export TEKNE_NETWORK_LIVE_OK=1
 }
 
 wait_for_network() {
   local tries="${NETWORK_WAIT_ATTEMPTS:-30}" i
-  log INFO "Waiting for network connectivity..."
   if (( DRY_RUN || SKIP_NETWORK_WAIT )); then
     log DRY-RUN "wait_for_network (skipped)"
     return 0
   fi
+  if [[ "${TEKNE_NETWORK_LIVE_OK:-0}" == 1 ]] && network_is_up; then
+    return 0
+  fi
+  log INFO "Waiting for network connectivity..."
   for ((i = 1; i <= tries; i++)); do
     if network_is_up; then
       log INFO "Network is up (attempt ${i}/${tries})."
+      export TEKNE_NETWORK_LIVE_OK=1
       return 0
     fi
     log INFO "  attempt ${i}/${tries}: no IP connectivity yet (check WiFi/Ethernet)..."
     sleep 2
   done
+  log_network_diagnostics
   die "Network unavailable after ${tries} attempts (~$((tries * 2))s). Connect on the live ISO, or re-run with --skip-network-wait."
+}
+
+prepare_live_pacman_for_archinstall() {
+  local host="$1"
+
+  if (( DRY_RUN )); then
+    log DRY-RUN "prepare_live_pacman_for_archinstall $host"
+    return 0
+  fi
+
+  log INFO "=== Live ISO pacman (repos + mirrorlist) before archinstall ==="
+  append_pacman_repo "$host"
+
+  log INFO "Updating live mirrorlist with reflector..."
+  run /usr/bin/reflector \
+    --country 'United States' \
+    --latest 100 \
+    --sort rate \
+    --protocol 'https,ftp' \
+    --age 168 \
+    --save /etc/pacman.d/mirrorlist
+
+  log INFO "Synchronizing live package databases..."
+  run pacman -Syy
 }
 
 # Copy vault password file into chroot (live-ISO paths are not visible in arch-chroot).

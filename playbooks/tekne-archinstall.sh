@@ -246,6 +246,7 @@ run_archinstall() {
     --config "$config"
     --creds "$creds"
     --mountpoint "$ARCHINSTALL_MOUNT"
+    --skip-wifi-check
   )
   if (( ! INTERACTIVE )); then
     cmd+=(--silent)
@@ -307,6 +308,7 @@ main() {
 
   ensure_live_network "$HOST"
   prepare_themis_repo
+  prepare_live_pacman_for_archinstall "$HOST"
   generate_config
   run_archinstall
   run_post_archinstall
