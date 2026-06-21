@@ -235,6 +235,20 @@ generate_config() {
     return 0
   fi
   python3 "${gen_args[@]}"
+  python3 - <<'PY' "$CONFIG_DIR/config.json"
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as fh:
+    c = json.load(fh)
+for dm in c.get("disk_config", {}).get("device_modifications", []):
+    for part in dm.get("partitions", []):
+        if "dev_path" not in part:
+            sys.exit("config.json missing dev_path — update playbooks/lib/generate_archinstall_config.py")
+        for key in ("start", "size"):
+            if not isinstance(part.get(key), dict) or part[key].get("sector_size") is None:
+                sys.exit(f"config.json missing {key}.sector_size — update generate_archinstall_config.py")
+print("config.json schema OK for archinstall")
+PY
   log INFO "Generated ${CONFIG_DIR}/config.json and ${CONFIG_DIR}/creds.json"
 }
 

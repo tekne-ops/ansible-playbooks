@@ -343,6 +343,24 @@ def build_config(
     return config
 
 
+def validate_config(config: dict[str, Any]) -> None:
+    """Ensure disk_config matches archinstall on current ISO (py3.14)."""
+    disk = config.get("disk_config") or {}
+    for dm in disk.get("device_modifications") or []:
+        for idx, part in enumerate(dm.get("partitions") or []):
+            if "dev_path" not in part:
+                raise ValueError(
+                    f"partition[{idx}] missing 'dev_path' — update generate_archinstall_config.py",
+                )
+            for key in ("start", "size"):
+                size = part.get(key)
+                if not isinstance(size, dict) or size.get("sector_size") is None:
+                    raise ValueError(
+                        f"partition[{idx}].{key} missing sector_size object "
+                        f"— update generate_archinstall_config.py",
+                    )
+
+
 def build_creds_template(root_password: str | None = None) -> dict[str, Any]:
     """Creds file for archinstall --creds (passwords kept separate from config)."""
     creds: dict[str, Any] = {}
@@ -392,6 +410,8 @@ def main() -> int:
         mountpoint=args.mountpoint,
         silent=not args.interactive,
     )
+
+    validate_config(config)
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
