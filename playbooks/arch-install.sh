@@ -609,6 +609,35 @@ ensure_ansible_repos() {
   fi
 }
 
+# Chroot installs: requirements.yml uses ../ansible-collections (monorepo-relative).
+# ansible-galaxy resolves type:dir from CWD in chroot, so use absolute paths under /media.
+chroot_install_ansible_collections() {
+  local mnt="$1"
+  local coll_src="${ANSIBLE_COLLECTIONS_ROOT}/tekne/devops"
+  local req_chroot="${ANSIBLE_ROOT}/requirements-chroot.yml"
+
+  if (( DRY_RUN )); then
+    log DRY-RUN "write ${req_chroot} with source ${coll_src} and ansible-galaxy collection install"
+    return 0
+  fi
+
+  [[ -f "${mnt}${coll_src}/galaxy.yml" ]] \
+    || die "Collection not found at ${coll_src}/galaxy.yml (ensure_ansible_repos clone failed?)"
+
+  cat > "${mnt}${req_chroot}" <<EOF
+---
+collections:
+  - name: community.general
+  - name: ansible.posix
+  - name: tekne.devops
+    type: dir
+    source: ${coll_src}
+EOF
+
+  log INFO "Installing Ansible collections from ${req_chroot} (tekne.devops @ ${coll_src})..."
+  chroot_run "$mnt" ansible-galaxy collection install -r "${req_chroot}" --force
+}
+
 # Decrypt vault and verify keys required for this host (needs staged vault password file).
 require_vault_vars() {
   local host="$1"
@@ -1192,8 +1221,7 @@ task_run_ansible() {
   ensure_ansible_repos "$mnt"
   require_vault_vars "$host" "$mnt"
 
-  log INFO "Installing Ansible collections from ${ANSIBLE_ROOT}/requirements.yml..."
-  chroot_run "$mnt" ansible-galaxy collection install -r "${ANSIBLE_ROOT}/requirements.yml" --force
+  chroot_install_ansible_collections "$mnt"
 
   case "$host" in
     THEMIS)
