@@ -187,37 +187,40 @@ def _size_percent(value: int) -> dict[str, Any]:
     return {"sector_size": _sector_size(), "unit": "Percent", "value": value}
 
 
-def _partition_esp() -> dict[str, Any]:
+def _partition_base() -> dict[str, Any]:
+    """Fields required by archinstall on current ISO (py3.14)."""
     return {
         "btrfs": [],
-        "flags": ["boot"],
-        "fs_type": "fat32",
-        "size": _size_mib(ESP_SIZE_MIB),
-        "start": _size_mib(1),
+        "dev_path": None,
         "mount_options": [],
-        "mountpoint": "/boot",
         "obj_id": _uid(),
         "status": "create",
         "type": "primary",
     }
 
 
+def _partition_esp() -> dict[str, Any]:
+    part = _partition_base()
+    part.update({
+        "flags": ["boot"],
+        "fs_type": "fat32",
+        "size": _size_mib(ESP_SIZE_MIB),
+        "start": _size_mib(1),
+        "mountpoint": "/boot",
+    })
+    return part
+
+
 def _partition_f2fs(mountpoint: str, start_mib: int, use_percent: bool = True) -> dict[str, Any]:
-    part: dict[str, Any] = {
-        "btrfs": [],
+    part = _partition_base()
+    part.update({
         "flags": [],
         "fs_type": "f2fs",
         "start": _size_mib(start_mib),
         "mount_options": F2FS_MOUNT_OPTS.copy(),
         "mountpoint": mountpoint,
-        "obj_id": _uid(),
-        "status": "create",
-        "type": "primary",
-    }
-    if use_percent:
-        part["size"] = _size_percent(100)
-    else:
-        part["size"] = _size_percent(100)
+        "size": _size_percent(100),
+    })
     return part
 
 
