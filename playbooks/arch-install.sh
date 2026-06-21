@@ -18,17 +18,17 @@ set -euo pipefail
 readonly SCRIPT_NAME="${0##*/}"
 readonly VERSION="1.1.0"
 
-readonly INSTALL_ROOT=/mnt
+readonly INSTALL_ROOT="${TEKNE_INSTALL_ROOT:-/mnt}"
 readonly ANSIBLE_ROOT=/media/ansible-playbooks
 readonly ANSIBLE_COLLECTIONS_ROOT=/media/ansible-collections
 readonly CHROOT_VAULT_PASS=/root/.ansible_vault_pass
 readonly VALID_HOSTS=(THEMIS ASTER YUGEN KVM)
 
-DRY_RUN=0
-FORCE_HOST=""
-FROM_TASK=0
-VAULT_PASS_FILE="${ARCH_INSTALL_VAULT_PASS_FILE:-}"
-LOG_FILE="/var/log/arch-install.log"
+DRY_RUN=${DRY_RUN:-0}
+FORCE_HOST="${FORCE_HOST:-}"
+FROM_TASK=${FROM_TASK:-0}
+VAULT_PASS_FILE="${VAULT_PASS_FILE:-${ARCH_INSTALL_VAULT_PASS_FILE:-}}"
+LOG_FILE="${LOG_FILE:-/var/log/arch-install.log}"
 
 # Pipeline task indices (must match run_pipeline order)
 readonly -a PIPELINE=(
@@ -1043,6 +1043,65 @@ task_run_ansible() {
   log INFO "Ansible configuration and UKI boot finalization completed."
 }
 
+# ---------------------------------------------------------------------------
+# Post-archinstall — F2FS labels, hosts, cache (archinstall leaves these to tekne)
+# ---------------------------------------------------------------------------
+task_tekne_post_archinstall() {
+  local host="$1"
+  local mnt="${TEKNE_INSTALL_ROOT:-/mnt}"
+  local layout="${HOST_DISK1_LAYOUT[$host]}"
+  local disk1_mnt
+
+  log INFO "=== Post-archinstall tekne adjustments ==="
+
+  require_chroot_ready "$mnt"
+
+  if [[ "$layout" == home ]]; then
+    disk1_mnt="${mnt}/home"
+  else
+    disk1_mnt="${mnt}/var/lib/docker"
+  fi
+
+  if (( ! DRY_RUN )); then
+    local root_part boot_part disk1_part
+    root_part="$(findmnt -no SOURCE "$mnt")"
+    boot_part="$(findmnt -no SOURCE "${mnt}/boot")"
+    disk1_part="$(findmnt -no SOURCE "$disk1_mnt")"
+
+    if [[ -n "$root_part" ]] && command -v f2fs.fslabel &>/dev/null; then
+      log INFO "Setting F2FS label ROOT on $root_part"
+      f2fs.fslabel "$root_part" ROOT 2>/dev/null || true
+    fi
+    if [[ -n "$boot_part" ]] && command -v fatlabel &>/dev/null; then
+      log INFO "Setting FAT label BOOT on $boot_part"
+      fatlabel "$boot_part" BOOT 2>/dev/null || true
+    fi
+    if [[ -n "$disk1_part" ]] && command -v f2fs.fslabel &>/dev/null; then
+      local disk1_label=DOCKER
+      [[ "$layout" == home ]] && disk1_label=HOME
+      log INFO "Setting F2FS label ${disk1_label} on $disk1_part"
+      f2fs.fslabel "$disk1_part" "$disk1_label" 2>/dev/null || true
+    fi
+  else
+    log DRY-RUN "f2fs.fslabel / fatlabel for ROOT, BOOT, disk1"
+  fi
+
+  chroot_bash "$mnt" "grep -qF '${host}.tekne.sv' /etc/hosts || echo '127.0.0.1 localhost ${host}.tekne.sv ${host}' >> /etc/hosts"
+  chroot_bash "$mnt" 'mkdir -p /var/cache/{pacman/pkg,docker/build,staging,build}'
+
+  if [[ "$host" == THEMIS ]]; then
+    log INFO "THEMIS: cache bind mounts (skipped if /mnt/cache not present)..."
+    themis_cache_bind_mounts "$mnt"
+  fi
+}
+
+# Run tekne post-archinstall steps then task 9 (Ansible + UKI boot).
+tekne_run_post_archinstall() {
+  local host="$1"
+  task_tekne_post_archinstall "$host"
+  task_run_ansible "$host"
+}
+
 task_summary() {
   local host="$1"
   log INFO "Install summary: $host (${HOST_ROLE[$host]}) on ${INSTALL_ROOT}"
@@ -1158,4 +1217,6 @@ main() {
   log INFO "=== Install pipeline complete for $host ==="
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

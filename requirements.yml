@@ -2,13 +2,12 @@
 collections:
   - name: community.general
   - name: ansible.posix
-  # Local monorepo (editable source under ../ansible-collections/tekne/devops)
+  # Relative to this file: works in monorepo and arch-install (/media/ansible-playbooks + /media/ansible-collections)
   - name: tekne.devops
     type: dir
-    source: /media/ansible-collections/tekne/devops
+    source: ../ansible-collections/tekne/devops
 
-  # Remote Git (use instead of dir for CI / fresh clone without local collection tree)
-  # - name: >-
-  #     git+https://github.com/tekne-ops/ansible-collections.git#/tekne/devops
+  # Standalone clone without sibling repo (CI / fresh checkout):
+  # - name: git+https://github.com/tekne-ops/ansible-collections.git#/tekne/devops
   #   type: git
   #   version: main
