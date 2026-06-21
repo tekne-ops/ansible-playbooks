@@ -27,6 +27,7 @@ readonly VALID_HOSTS=(THEMIS ASTER YUGEN KVM)
 DRY_RUN=${DRY_RUN:-0}
 FORCE_HOST="${FORCE_HOST:-}"
 FROM_TASK=${FROM_TASK:-0}
+SKIP_NETWORK_WAIT=${SKIP_NETWORK_WAIT:-0}
 VAULT_PASS_FILE="${VAULT_PASS_FILE:-${ARCH_INSTALL_VAULT_PASS_FILE:-}}"
 LOG_FILE="${LOG_FILE:-/var/log/arch-install.log}"
 
@@ -246,22 +247,142 @@ require_chroot_cmds() {
   (( ${#missing[@]} == 0 )) || die "Missing commands in chroot: ${missing[*]}"
 }
 
+_arch_install_dir() {
+  cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
+}
+
+network_is_up() {
+  local target
+  for target in 1.1.1.1 9.9.9.9 8.8.8.8; do
+    if timeout 3 ping -c1 -W2 "$target" &>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+live_wifi_iface() {
+  ls /sys/class/net 2>/dev/null | grep -E '^wl' | head -1 || true
+}
+
+live_has_ethernet_carrier() {
+  local iface carrier
+  for iface in $(ls /sys/class/net 2>/dev/null | grep -E '^en|^eth' || true); do
+    carrier="$(cat "/sys/class/net/${iface}/carrier" 2>/dev/null || echo 0)"
+    [[ "$carrier" == "1" ]] && return 0
+  done
+  return 1
+}
+
+resolve_wifi_passphrase() {
+  local ssid="${TEKNE_WIFI_SSID:-esher}"
+  local vault_file pass
+
+  if [[ -n "${TEKNE_WIFI_PASSPHRASE:-}" ]]; then
+    printf '%s' "$TEKNE_WIFI_PASSPHRASE"
+    return 0
+  fi
+
+  vault_file="$(_arch_install_dir)/../group_vars_all/vault"
+  if [[ -n "$VAULT_PASS_FILE" && -r "$VAULT_PASS_FILE" && -f "$vault_file" ]] \
+    && command -v ansible-vault &>/dev/null; then
+    pass="$(ansible-vault view "$vault_file" --vault-password-file "$VAULT_PASS_FILE" 2>/dev/null \
+      | awk -F: '/^os_wifi_passphrase:/ {
+          sub(/^[^:]*:[[:space:]]*/, "")
+          gsub(/^["'\''"]|["'\''"]$/, "")
+          print
+          exit
+        }')" || true
+    if [[ -n "$pass" ]]; then
+      printf '%s' "$pass"
+      return 0
+    fi
+  fi
+
+  if [[ -t 0 ]]; then
+    read -rs -p "WiFi passphrase for ${ssid}: " pass
+    echo >&2
+    if [[ -n "$pass" ]]; then
+      printf '%s' "$pass"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+connect_wifi_live() {
+  local host="$1"
+  local ssid iface pass attempt max_attempts=6
+
+  [[ "$host" == ASTER ]] || return 0
+  network_is_up && return 0
+  live_has_ethernet_carrier && return 0
+
+  ssid="${TEKNE_WIFI_SSID:-esher}"
+  iface="$(live_wifi_iface)"
+  if [[ -z "$iface" ]]; then
+    log WARN "ASTER: no WiFi interface (wl*) found — connect Ethernet or WiFi manually (nmtui/iwctl)."
+    return 0
+  fi
+  command -v iwctl &>/dev/null || {
+    log WARN "iwctl not found — connect WiFi manually before continuing."
+    return 0
+  }
+
+  log INFO "ASTER: bringing up WiFi (${ssid} on ${iface})..."
+  systemctl is-active --quiet iwd 2>/dev/null || systemctl start iwd 2>/dev/null || true
+  sleep 2
+
+  pass="$(resolve_wifi_passphrase)" || pass=""
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    if [[ -n "$pass" ]]; then
+      if iwctl station "$iface" connect "$ssid" --passphrase "$pass" &>/dev/null; then
+        log INFO "WiFi connect initiated (attempt ${attempt}/${max_attempts})."
+        sleep 5
+        network_is_up && return 0
+      fi
+    elif iwctl station "$iface" connect "$ssid" &>/dev/null; then
+      log INFO "WiFi connect initiated without passphrase (attempt ${attempt}/${max_attempts})."
+      sleep 5
+      network_is_up && return 0
+    fi
+    log INFO "  WiFi attempt ${attempt}/${max_attempts} failed, retrying in 5s..."
+    sleep 5
+  done
+  log WARN "WiFi connect failed after ${max_attempts} attempts; wait_for_network may still fail."
+}
+
+ensure_live_network() {
+  local host="$1"
+
+  if (( DRY_RUN || SKIP_NETWORK_WAIT )); then
+    log DRY-RUN "ensure_live_network (skipped)"
+    return 0
+  fi
+  if network_is_up; then
+    log INFO "Network already up."
+    return 0
+  fi
+  connect_wifi_live "$host"
+  wait_for_network
+}
+
 wait_for_network() {
-  local tries=30 i
+  local tries="${NETWORK_WAIT_ATTEMPTS:-30}" i
   log INFO "Waiting for network connectivity..."
-  if (( DRY_RUN )); then
+  if (( DRY_RUN || SKIP_NETWORK_WAIT )); then
     log DRY-RUN "wait_for_network (skipped)"
     return 0
   fi
   for ((i = 1; i <= tries; i++)); do
-    if ping -c1 -W2 archlinux.org &>/dev/null \
-      || curl -fsSL --max-time 5 https://archlinux.org &>/dev/null; then
-      log INFO "Network is up."
+    if network_is_up; then
+      log INFO "Network is up (attempt ${i}/${tries})."
       return 0
     fi
+    log INFO "  attempt ${i}/${tries}: no IP connectivity yet (check WiFi/Ethernet)..."
     sleep 2
   done
-  die "Network unavailable after $tries attempts."
+  die "Network unavailable after ${tries} attempts (~$((tries * 2))s). Connect on the live ISO, or re-run with --skip-network-wait."
 }
 
 # Copy vault password file into chroot (live-ISO paths are not visible in arch-chroot).
@@ -1193,6 +1314,7 @@ Usage:
 
 Options:
   -n, --dry-run              Print commands without executing
+  --skip-network-wait        Skip connectivity wait (offline / manual setup)
   --from-task N              Start at pipeline task N (0-$(( ${#PIPELINE[@]} - 1 )))
   --vault-password-file PATH Ansible vault password file (non-interactive)
   -h, --help                 Show this help
@@ -1235,6 +1357,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -n|--dry-run) DRY_RUN=1 ;;
+      --skip-network-wait) SKIP_NETWORK_WAIT=1 ;;
       --from-task)
         shift
         [[ $# -gt 0 ]] || die "--from-task requires a task number"
@@ -1274,6 +1397,7 @@ main() {
     log INFO "Resuming from task $FROM_TASK (${PIPELINE[$FROM_TASK]}) — skipping destroy confirmation"
   fi
 
+  ensure_live_network "$host"
   run_pipeline "$host"
   task_summary "$host"
   print_post_install_steps "$host"

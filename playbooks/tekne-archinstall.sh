@@ -19,8 +19,12 @@
 # Environment:
 #   TEKNE_INSTALL_ROOT       Install mount (default: /mnt; pass to archinstall --mountpoint)
 #   ARCH_INSTALL_VAULT_PASS_FILE  Same as --vault-password-file
+#   TEKNE_WIFI_SSID          ASTER WiFi SSID (default: esher)
+#   TEKNE_WIFI_PASSPHRASE    ASTER WiFi passphrase (or use --vault-password-file)
+#   SKIP_NETWORK_WAIT=1      Skip connectivity wait (same as --skip-network-wait)
 #
-# Note: archinstall does not configure WiFi — connect before running (see guided docs).
+# Note: connect WiFi/Ethernet on the live ISO before running, or let the script
+#       try ASTER WiFi (iwctl) when no link is detected.
 
 set -euo pipefail
 
@@ -35,6 +39,7 @@ DISK0=""
 DISK1=""
 DRY_RUN=0
 INTERACTIVE=0
+SKIP_NETWORK_WAIT=${SKIP_NETWORK_WAIT:-0}
 VAULT_PASS_FILE="${ARCH_INSTALL_VAULT_PASS_FILE:-}"
 ROOT_PASSWORD=""
 CONFIG_DIR=""
@@ -48,6 +53,7 @@ Usage:
 
 Options:
   -n, --dry-run                 Print actions without executing archinstall/Ansible
+  --skip-network-wait           Do not wait for network (offline / manual mirror setup)
   --vault-password-file PATH    Ansible vault password (required for task 9)
   --root-password PASS          Root password for archinstall --creds (prompt if omitted)
   --disk0 DEV                   Disk0 block device (default: auto from profile)
@@ -110,6 +116,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -n|--dry-run) DRY_RUN=1 ;;
+      --skip-network-wait) SKIP_NETWORK_WAIT=1 ;;
       --interactive) INTERACTIVE=1 ;;
       --vault-password-file)
         shift
@@ -280,6 +287,7 @@ main() {
   source "$ARCH_INSTALL_LIB"
   # Re-apply flags after source (arch-install.sh only defaults unset vars)
   DRY_RUN=${DRY_RUN:-0}
+  SKIP_NETWORK_WAIT=${SKIP_NETWORK_WAIT:-0}
   VAULT_PASS_FILE="${VAULT_PASS_FILE:-${ARCH_INSTALL_VAULT_PASS_FILE:-}}"
 
   prompt_hostname
@@ -297,6 +305,7 @@ main() {
     ROOT_PASSWORD="${ROOT_PASSWORD:-dry-run-placeholder}"
   fi
 
+  ensure_live_network "$HOST"
   prepare_themis_repo
   generate_config
   run_archinstall
