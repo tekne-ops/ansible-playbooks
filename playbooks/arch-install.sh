@@ -1108,6 +1108,64 @@ task_summary() {
   log INFO "Kernel: linux${HOST_KERNEL[$host]} | log: $LOG_FILE"
 }
 
+# Host-specific steps after reboot (chroot task 9 is only the first Ansible phase).
+print_post_install_steps() {
+  local host="$1"
+  local playbook_dir="/media/ansible-playbooks/playbooks"
+
+  echo
+  echo "================================================================"
+  echo "  NEXT STEPS — complete setup after reboot"
+  echo "================================================================"
+  echo
+  echo "  1. Reboot into the installed system (remove live ISO if needed)."
+  echo "  2. Log in locally or over SSH."
+  echo "  3. Run the post-install playbook from the installed copy of the repo:"
+  echo
+  case "$host" in
+    ASTER|YUGEN)
+      echo "     cd ${playbook_dir}"
+      echo "     sudo ./workstation.sh"
+      echo
+      echo "  workstation.sh runs: network-host (WiFi on ASTER), os, pipewire,"
+      echo "  gaming, onedrive, bootstrap, nftables."
+      echo
+      echo "  Notes:"
+      echo "    - ASTER: WiFi connects on this run (deferred during live ISO install)."
+      echo "    - bootstrap pauses for OneDrive authentication."
+      echo "    - Log in to the desktop before bootstrap if you want XFCE theming applied."
+      ;;
+    THEMIS)
+      echo "     cd ${playbook_dir}"
+      echo "     sudo ansible-playbook main.yml \\"
+      echo "       --tags os,nftables,libvirt,docker-host,haproxy,repotekne,gerbera \\"
+      echo "       --ask-vault-pass"
+      echo
+      echo "  Or use ./server.sh once it is configured for the full server tag set."
+      ;;
+    KVM)
+      echo "     cd ${playbook_dir}"
+      echo "     sudo ansible-playbook main.yml \\"
+      echo "       --tags network-host,os,pipewire,nftables \\"
+      echo "       --ask-vault-pass"
+      echo
+      echo "  KVM is headless: do not run workstation.sh (no desktop/gaming/onedrive)."
+      ;;
+    *)
+      echo "     cd ${playbook_dir}"
+      echo "     sudo ansible-playbook main.yml --ask-vault-pass"
+      ;;
+  esac
+  echo
+  echo "  Vault: use --vault-password-file ~/.vault_pass instead of --ask-vault-pass"
+  echo "  when running non-interactively."
+  echo
+  echo "  If repos are not under ${playbook_dir}, clone ansible-playbooks first or"
+  echo "  run from your checkout: cd ~/path/to/ansible-playbooks/playbooks"
+  echo "================================================================"
+  echo
+}
+
 run_pipeline() {
   local host="$1"
   local t name total="${#PIPELINE[@]}"
@@ -1158,6 +1216,11 @@ Pipeline tasks (use --from-task N):
   7  fstab, pacman.conf copy, symlinks
   8  chroot locale, timezone, hostname, THEMIS cache binds
   9  ansible-playbooks + UKI boot (mkinitcpio preset, efibootmgr)
+
+After reboot (second Ansible phase):
+  ASTER/YUGEN  cd /media/ansible-playbooks/playbooks && sudo ./workstation.sh
+  THEMIS       server tags via ./server.sh or ansible-playbook (see post-install banner)
+  KVM          network-host,os,pipewire,nftables (not workstation.sh)
 EOF
 }
 
@@ -1213,6 +1276,7 @@ main() {
 
   run_pipeline "$host"
   task_summary "$host"
+  print_post_install_steps "$host"
 
   log INFO "=== Install pipeline complete for $host ==="
 }
