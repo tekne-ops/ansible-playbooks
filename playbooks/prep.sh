@@ -531,7 +531,7 @@ post_start() {
         intel-ucode $mcode linux${kernel} "linux${kernel}-headers" \
         linux-firmware linux-firmware-broadcom linux-firmware-liquidio linux-firmware-mellanox \
         linux-firmware-nfp linux-firmware-qlogic \
-        dosfstools f2fs-tools exfatprogs exfat-utils \
+        dosfstools f2fs-tools exfatprogs \
         python311 python-pip python-pipx python-passlib python-pipenv \
         ansible-core ansible-lint ansible \
         blesh-git pikaur schedtoold \
