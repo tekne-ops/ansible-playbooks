@@ -1,9 +1,0 @@
----
-# vars file for os role
-
-# Get hostname from cached fact or ansible facts
-# NOTE: os_hostname_upper is used for role logic (comparisons, conditionals)
-# NOTE: os_hostname_raw is the real hostname from /etc/hostname, used in
-#       systemd-networkd Host= directives which are case-sensitive
-os_hostname: "{{ cached_hostname | default(ansible_hostname) | upper }}"
-os_hostname_raw: "{{ cached_hostname_raw | default(ansible_hostname) }}"

@@ -6,7 +6,7 @@ Ansible playbooks, inventories, and installation scripts for provisioning and co
 
 - Defines **playbooks** that run on local workstations/servers or remote Kubernetes nodes
 - Holds **inventories** for prod (localhost) and k8s cluster hosts
-- Stores **encrypted secrets** in Ansible Vault (`group_vars_all/vault`)
+- Stores **encrypted secrets** in Ansible Vault (`group_vars/all/vault`)
 - Provides **Arch Linux installation scripts** for fresh installs from the live ISO
 - Runs **CI linting** via GitHub Actions (`ansible-lint`)
 
@@ -16,22 +16,27 @@ Roles live in `ansible-collections`; this repo wires them together and supplies 
 
 ```
 ansible-playbooks/
-├── ansible.cfg              # Root config (collections_path, SSH user, inventory)
+├── ansible.cfg              # Single Ansible config (inventory, collections_path, callbacks)
 ├── requirements.yml         # Galaxy collection dependencies
-├── group_vars_all/
-│   └── vault                # Encrypted secrets (passwords, TLS PEM, WiFi passphrase)
+├── group_vars/
+│   └── all/
+│       └── vault            # Encrypted secrets (passwords, TLS PEM, WiFi passphrase)
 ├── inventories/
 │   ├── prod/hosts.yml       # Localhost inventory for workstation/server playbooks
 │   └── k8s/
 │       ├── hosts.yml        # k8s-mstr00 + k8s-node* hosts
 │       └── group_vars/k8s_cluster.yml
-├── playbooks/
-│   ├── ansible.cfg          # Playbook-local config (fact caching, become, callbacks)
-│   ├── main.yml             # Primary host configuration playbook
-│   ├── k8s.yml              # Kubernetes node prerequisites (Debian)
-│   ├── prep.sh              # Legacy Arch install prep (live ISO)
+├── install/                 # Arch live-ISO provisioning (not Ansible playbooks)
 │   ├── arch-install.sh      # Arch installer with per-host profiles
 │   ├── efi.sh               # EFI boot entry helper
+│   ├── profiles/
+│   │   └── hosts.json       # Single source for host disks, packages, kernel
+│   └── lib/
+│       ├── tekne_profiles.py
+│       └── generate_archinstall_config.py
+├── playbooks/
+│   ├── main.yml             # Primary host configuration playbook
+│   ├── k8s.yml              # Kubernetes node prerequisites (Debian)
 │   ├── workstation.sh       # Tag-filtered workstation run
 │   ├── server.sh            # Tag-filtered server run
 │   ├── consul.sh            # Run consul role only
@@ -82,22 +87,22 @@ Primary playbook for Arch Linux workstations and servers. Runs on `localhost` wi
 The bootstrap role pauses for interactive OneDrive authentication on first run.
 
 ```bash
-cd playbooks
+# From repo root (ansible.cfg sets inventory and collections_path)
 
 # Full run
-ansible-playbook main.yml --ask-vault-pass
+ansible-playbook playbooks/main.yml --ask-vault-pass
 
 # Workstation subset
-./workstation.sh
+./playbooks/workstation.sh
 
 # Server subset (Docker services, libvirt, HAProxy, etc.)
-./server.sh
+./playbooks/server.sh
 
 # Specific roles
-ansible-playbook main.yml --ask-vault-pass --tags "user,os,gpu"
+ansible-playbook playbooks/main.yml --ask-vault-pass --tags "user,os,gpu"
 
 # Dry run
-ansible-playbook main.yml --ask-vault-pass --check
+ansible-playbook playbooks/main.yml --ask-vault-pass --check
 ```
 
 ### k8s.yml
@@ -114,21 +119,13 @@ Two installer scripts are available from the live ISO:
 
 ### arch-install.sh (recommended)
 
-Per-host profiles with dry-run, resume-from-task, and vault integration.
+Per-host profiles with dry-run, resume-from-task, and vault integration. Host profiles live in `install/profiles/hosts.json`.
 
 ```bash
-./arch-install.sh                    # auto-detect host
-./arch-install.sh YUGEN              # force profile
-./arch-install.sh --dry-run ASTER
-./arch-install.sh --vault-password-file ~/.vault_pass THEMIS
-```
-
-### prep.sh (legacy)
-
-Formats drives, runs pacstrap, configures bootloader, and chroots into the new system.
-
-```bash
-./prep.sh YUGEN   # ASTER | THEMIS | YUGEN
+./install/arch-install.sh                    # auto-detect host
+./install/arch-install.sh YUGEN              # force profile
+./install/arch-install.sh --dry-run ASTER
+./install/arch-install.sh --vault-password-file ~/.vault_pass THEMIS
 ```
 
 After reboot, run `main.yml` from the installed system.
@@ -141,7 +138,7 @@ Install collections before running playbooks:
 ansible-galaxy collection install -r requirements.yml
 ```
 
-`requirements.yml` pulls `community.general`, `ansible.posix`, and the local `tekne.devops` collection. For local development, the collection source is mounted at `/media/ansible-collections/tekne/devops` (or configured via `collections_path` in `ansible.cfg` pointing to `../ansible-collections/tekne`).
+`requirements.yml` pulls `community.general`, `ansible.posix`, and the local `tekne.devops` collection. For local development, `ansible.cfg` sets `collections_path = ../ansible-collections` (resolves `tekne/devops/`). On the live ISO, the collection is mounted at `/media/ansible-collections/tekne/devops`.
 
 For CI or fresh clones without a local collection tree, uncomment the Git source in `requirements.yml`:
 
@@ -153,7 +150,7 @@ For CI or fresh clones without a local collection tree, uncomment the Git source
 
 ## Vault
 
-Secrets are stored in `group_vars_all/vault` (Ansible Vault encrypted).
+Secrets are stored in `group_vars/all/vault` (Ansible Vault encrypted).
 
 **Required variables:**
 
@@ -165,8 +162,8 @@ Secrets are stored in `group_vars_all/vault` (Ansible Vault encrypted).
 | `haproxy_ssl_pem` | Full PEM (cert + key) for tekne.sv TLS |
 
 ```bash
-ansible-vault edit group_vars_all/vault
-ansible-vault view group_vars_all/vault
+ansible-vault edit group_vars/all/vault
+ansible-vault view group_vars/all/vault
 ```
 
 ## Requirements

@@ -1,3 +1,6 @@
 #!/bin/bash
+set -euo pipefail
 
-ansible-playbook main.yml --tags consul
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+exec ansible-playbook playbooks/main.yml --tags consul

@@ -1,0 +1,182 @@
+{
+  "global": {
+    "timezone": "America/El_Salvador",
+    "esp_size_mib": 1024,
+    "gpt_tail_reserve_mib": 4,
+    "f2fs_mount_opts": "compress_algorithm=zstd:6,compress_chksum,atgc,gc_merge,lazytime",
+    "f2fs_mkfs_opts": "-O extra_attr,inode_checksum,sb_checksum,compression",
+    "themis_binaries_repo": "https://github.com/tekne-ops/binaries.git",
+    "themis_binaries_root": "/tmp/binaries",
+    "pacstrap_base_packages": [
+      "base", "base-devel", "intel-ucode",
+      "linux-firmware", "linux-firmware-broadcom", "linux-firmware-liquidio",
+      "linux-firmware-mellanox", "linux-firmware-nfp", "linux-firmware-qlogic",
+      "dosfstools", "f2fs-tools", "exfatprogs",
+      "python311", "python-pip", "python-pipx", "python-passlib", "python-pipenv",
+      "ansible-core", "ansible-lint", "ansible",
+      "blesh-git", "pikaur", "schedtoold",
+      "vim", "vim-tagbar", "vim-tabular", "vim-syntastic", "vim-supertab",
+      "vim-spell-es", "vim-spell-en", "vim-nerdtree", "vim-nerdcommenter",
+      "vim-devicons", "vim-ansible",
+      "mlocate", "bash-completion", "pkgfile", "efibootmgr", "acpi", "acpid",
+      "iwd", "wpa_supplicant", "wireless-regdb", "rsync", "git", "wget", "reflector",
+      "iptables-nft", "less", "usb_modeswitch", "libsecret", "gzip", "tar", "zlib", "xz",
+      "nvme-cli", "openssh", "openssl", "screen", "sudo", "gnupg", "bind", "cronie",
+      "inetutils", "whois", "zip", "unzip", "p7zip", "sed", "fuse", "mdadm", "jq",
+      "curl", "make", "pkg-config", "dbus", "openbsd-netcat", "irqbalance", "schedtool",
+      "shfmt", "gsmartcontrol", "shellcheck", "bats", "cpupower", "devtools",
+      "fakechroot", "fakeroot", "tcpdump", "parted", "xfsprogs", "libsmbios", "fwupd",
+      "pipewire", "pipewire-alsa", "pipewire-jack", "pipewire-pulse", "wireplumber",
+      "alsa-utils", "wmctrl", "man", "udisks2", "restic", "noto-fonts",
+      "noto-fonts-emoji", "ttf-dejavu", "ttf-liberation", "ttf-ms-win10-auto",
+      "systemd", "ukify"
+    ],
+    "f2fs_mount_options": [
+      "compress_algorithm=zstd:6",
+      "compress_chksum",
+      "atgc",
+      "gc_merge",
+      "lazytime"
+    ]
+  },
+  "hosts": {
+    "THEMIS": {
+      "role": "server",
+      "disk0": "/dev/nvme0",
+      "disk1": "/dev/nvme1",
+      "storage_kind": "nvme",
+      "disk1_layout": "docker",
+      "disk1_mount": "/var/lib/docker",
+      "disk1_start_mib": 0,
+      "kernel_suffix": "-tkg-themis",
+      "kernel_pkg": "linux-tkg-themis",
+      "mcode_packages": [
+        "mesa", "lib32-mesa", "vulkan-intel", "lib32-vulkan-intel"
+      ],
+      "efi_extra": "",
+      "efi_intel": " enable_guc=3 intel_pstate=passive",
+      "additional_repositories": [],
+      "custom_repositories": [
+        {
+          "name": "local-repo",
+          "url": "file:///tmp/binaries/themis",
+          "sign_check": "Optional",
+          "sign_option": "TrustAll"
+        },
+        {
+          "name": "tekne",
+          "url": "http://repo.tekne.sv/$arch",
+          "sign_check": "Optional",
+          "sign_option": "TrustAll"
+        }
+      ],
+      "services": [
+        "sshd.service",
+        "systemd-networkd.service",
+        "systemd-resolved.service"
+      ]
+    },
+    "ASTER": {
+      "role": "laptop",
+      "disk0": "/dev/nvme0",
+      "disk1": "/dev/nvme1",
+      "storage_kind": "nvme",
+      "disk1_layout": "home",
+      "disk1_mount": "/home",
+      "disk1_start_mib": 1,
+      "kernel_suffix": "-tkg-aster",
+      "kernel_pkg": "linux-tkg-aster",
+      "mcode_packages": [
+        "mesa", "lib32-mesa", "vulkan-intel", "lib32-vulkan-intel", "xorg-server",
+        "lib32-opencl-nvidia-tkg", "lib32-vulkan-icd-loader", "lib32-nvidia-utils-tkg",
+        "nvidia-open-dkms-tkg", "nvidia-settings-tkg", "opencl-nvidia-tkg",
+        "vulkan-icd-loader", "nvidia-utils-tkg", "sof-firmware", "upd72020x-fw",
+        "wd719x-firmware", "ast-firmware", "aic94xx-firmware", "brightnessctl",
+        "libinput", "thermald", "tlp", "tlpui", "pipewire-audio", "libldac", "libfreeaptx"
+      ],
+      "efi_extra": " mt7925e.disable_aspm=1",
+      "efi_intel": "",
+      "additional_repositories": ["multilib"],
+      "custom_repositories": [
+        {
+          "name": "tekne",
+          "url": "http://repo.tekne.sv/$arch",
+          "sign_check": "Optional",
+          "sign_option": "TrustAll"
+        }
+      ],
+      "services": [
+        "systemd-networkd.service",
+        "systemd-resolved.service",
+        "acpid.service",
+        "iwd.service",
+        "bluetooth.service",
+        "thermald.service",
+        "tlp.service"
+      ]
+    },
+    "YUGEN": {
+      "role": "pc",
+      "disk0": "/dev/nvme0",
+      "disk1": "/dev/nvme1",
+      "storage_kind": "nvme",
+      "disk1_layout": "docker",
+      "disk1_mount": "/var/lib/docker",
+      "disk1_start_mib": 0,
+      "kernel_suffix": "-tkg-yugen",
+      "kernel_pkg": "linux-tkg-yugen",
+      "mcode_packages": [
+        "lib32-opencl-nvidia", "lib32-vulkan-icd-loader", "lib32-nvidia-utils",
+        "nvidia-open-dkms-tkg", "nvidia-settings-tkg", "opencl-nvidia-tkg",
+        "vulkan-icd-loader", "nvidia-utils-tkg", "sound-theme-smooth",
+        "upd72020x-fw", "wd719x-firmware", "ast-firmware", "aic94xx-firmware"
+      ],
+      "efi_extra": "",
+      "efi_intel": "",
+      "additional_repositories": ["multilib"],
+      "custom_repositories": [
+        {
+          "name": "tekne",
+          "url": "http://repo.tekne.sv/$arch",
+          "sign_check": "Optional",
+          "sign_option": "TrustAll"
+        }
+      ],
+      "services": [
+        "systemd-networkd.service",
+        "systemd-resolved.service",
+        "acpid.service"
+      ]
+    },
+    "KVM": {
+      "role": "vm",
+      "disk0": "/dev/vda",
+      "disk1": "/dev/vdb",
+      "storage_kind": "virt",
+      "disk1_layout": "home",
+      "disk1_mount": "/home",
+      "disk1_start_mib": 1,
+      "kernel_suffix": "-tkg-themis",
+      "kernel_pkg": "linux-tkg-themis",
+      "mcode_packages": [
+        "mesa", "lib32-mesa", "vulkan-intel", "lib32-vulkan-intel"
+      ],
+      "efi_extra": "",
+      "efi_intel": " enable_guc=3 intel_pstate=passive",
+      "additional_repositories": ["multilib"],
+      "custom_repositories": [
+        {
+          "name": "tekne",
+          "url": "http://repo.tekne.sv/$arch",
+          "sign_check": "Optional",
+          "sign_option": "TrustAll"
+        }
+      ],
+      "services": [
+        "systemd-networkd.service",
+        "systemd-resolved.service",
+        "acpid.service"
+      ]
+    }
+  }
+}

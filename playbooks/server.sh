@@ -1,5 +1,8 @@
 #!/bin/bash
+set -euo pipefail
 
-# docker-host = Docker engine/network role; task tag "docker" = container steps in service roles
-# sudo ansible-playbook main.yml --tags os,nftables,libvirt,docker-host,haproxy,repotekne,gerbera --ask-vault-pass
-sudo ansible-playbook main.yml --tags gerbera --ask-vault-pass
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+exec sudo ansible-playbook playbooks/main.yml \
+  --tags os,nftables,libvirt,docker-host,haproxy,repotekne,gerbera \
+  --ask-vault-pass
