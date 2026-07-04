@@ -1143,13 +1143,13 @@ task_run_ansible() {
       ;;
     ASTER)
       log INFO "Running ansible-playbook for ASTER (tags: user, network-host, xfce4; WiFi connect deferred)..."
-      ansible_chroot_playbook "$mnt" "user,network-host,kde" \
+      ansible_chroot_playbook "$mnt" "user,network-host,xfce4" \
         -e network_connect_wifi=false \
         -e install_chroot_phase=true
       ;;
     YUGEN)
       log INFO "Running ansible-playbook for YUGEN (tags: user, network-host, xfce4)..."
-      ansible_chroot_playbook "$mnt" "user,network-host,kde" -e install_chroot_phase=true
+      ansible_chroot_playbook "$mnt" "user,network-host,xfce4" -e install_chroot_phase=true
       ;;
     KVM)
       log INFO "Running ansible-playbook for KVM (tags: user, network-host; headless, no xfce4)..."
