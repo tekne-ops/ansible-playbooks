@@ -3,8 +3,9 @@
 # Runs on ASTER, YUGEN, KVM (workstation) and THEMIS (server tags)
 #
 # Usage:
-#   ansible-playbook main.yml --ask-vault-pass
-#   ansible-playbook main.yml --vault-password-file=~/.vault_pass
+#   ansible-playbook playbooks/main.yml --ask-vault-pass
+#   ansible-playbook playbooks/main.yml --vault-password-file=~/.vault_pass
+#   ansible-playbook playbooks/main.yml --tags kde   # no vault needed
 #
 # Execution Flow:
 #   1. user      - Create users, SSH keys, shell configs
@@ -13,6 +14,7 @@
 #   4. pipewire  - Audio stack
 #   5. gpu       - Graphics drivers
 #   6. xfce4     - Desktop environment, LightDM, bluetooth
+#   6b. kde      - KDE Plasma desktop (plasma-meta, SDDM)
 #   7. gaming    - Steam, Lutris, gamemode
 #   8. onedrive  - OneDrive client installation and setup
 #   9. bootstrap - OneDrive sync (interactive), symlinks, XFCE config
@@ -25,10 +27,24 @@
   connection: local
   become: true
 
-  vars_files:
-    - ../group_vars/all/vault
-
   pre_tasks:
+    - name: Load vault secrets (roles that need encrypted variables)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir | dirname }}/group_vars/all/vault"
+      tags:
+        - user
+        - os
+        - network-host
+        - haproxy
+        - bootstrap
+        - onedrive
+        - docker-host
+        - libvirt
+        - consul
+        - jenkins
+        - gerbera
+        - repotekne
+
     - name: Read hostname from /etc/hostname
       ansible.builtin.slurp:
         src: /etc/hostname
@@ -94,6 +110,9 @@
 
     - role: tekne.devops.xfce4
       tags: [xfce4]
+
+    - role: tekne.devops.kde
+      tags: [kde]
 
     - role: tekne.devops.gaming
       tags: [gaming]
