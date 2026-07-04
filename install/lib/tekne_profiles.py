@@ -49,7 +49,8 @@ def pacstrap_base_packages(data: dict[str, Any] | None = None) -> list[str]:
 
 
 def _bash_assoc(name: str, mapping: dict[str, str]) -> str:
-    lines = [f"declare -A {name}=("]
+    """Global associative array (declare -gA) so eval from load_host_profiles survives function return."""
+    lines = [f"declare -gA {name}=("]
     for key in sorted(mapping):
         lines.append(f"  [{key}]={shlex.quote(mapping[key])}")
     lines.append(")")
@@ -93,14 +94,14 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         _bash_assoc("HOST_MCODE", mcode),
         _bash_assoc("HOST_EFI_EXTRA", efi_extra),
         _bash_assoc("HOST_EFI_INTEL", efi_intel),
-        f'readonly -a PACSTRAP_BASE_PKGS=({" ".join(shlex.quote(p) for p in g["pacstrap_base_packages"])})',
-        f'readonly VALID_HOSTS=({" ".join(valid_hosts(data))})',
-        f'readonly F2FS_MNT_OPTS={shlex.quote(g["f2fs_mount_opts"])}',
-        f'readonly F2FS_MKFS_OPTS={shlex.quote(g["f2fs_mkfs_opts"])}',
-        f'readonly ESP_SIZE_MIB={g["esp_size_mib"]}',
-        f'readonly TIMEZONE={shlex.quote(g["timezone"])}',
-        f'readonly THEMIS_BINARIES_REPO={shlex.quote(g["themis_binaries_repo"])}',
-        f'readonly THEMIS_BINARIES_ROOT={shlex.quote(g["themis_binaries_root"])}',
+        f'declare -gra PACSTRAP_BASE_PKGS=({" ".join(shlex.quote(p) for p in g["pacstrap_base_packages"])})',
+        f'declare -gra VALID_HOSTS=({" ".join(shlex.quote(h) for h in valid_hosts(data))})',
+        f'declare -gr F2FS_MNT_OPTS={shlex.quote(g["f2fs_mount_opts"])}',
+        f'declare -gr F2FS_MKFS_OPTS={shlex.quote(g["f2fs_mkfs_opts"])}',
+        f'declare -gr ESP_SIZE_MIB={g["esp_size_mib"]}',
+        f'declare -gr TIMEZONE={shlex.quote(g["timezone"])}',
+        f'declare -gr THEMIS_BINARIES_REPO={shlex.quote(g["themis_binaries_repo"])}',
+        f'declare -gr THEMIS_BINARIES_ROOT={shlex.quote(g["themis_binaries_root"])}',
     ]
     return "\n".join(parts)
 

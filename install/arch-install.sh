@@ -53,11 +53,13 @@ _arch_install_dir() {
 }
 
 load_host_profiles() {
-  local root profiles_py
+  local profiles_py
+  local root
   root="$(_arch_install_dir)"
   profiles_py="${root}/lib/tekne_profiles.py"
   command -v python3 &>/dev/null || die "python3 required to load install profiles"
   [[ -f "$profiles_py" ]] || die "Missing profile loader: $profiles_py"
+  # shell-init uses declare -gA / declare -gr so profile arrays persist after this function returns.
   eval "$(python3 "$profiles_py" --shell-init)"
 }
 
@@ -667,7 +669,7 @@ detect_host() {
 
 validate_host() {
   local host="$1"
-  [[ -n "${HOST_ROLE[$host]:-}" ]] || die "Unknown host '$host'. Valid: ${VALID_HOSTS[*]}"
+  [[ -v "HOST_ROLE[$host]" ]] || die "Unknown host '$host'. Valid: ${VALID_HOSTS[*]}"
 }
 
 host_banner() {
