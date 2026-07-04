@@ -514,12 +514,14 @@ ensure_ansible_repos() {
   fi
 }
 
-# Chroot installs: requirements.yml uses ../ansible-collections (monorepo-relative).
-# ansible-galaxy resolves type:dir from CWD in chroot, so use absolute paths under /media.
+# Chroot installs: requirements-chroot.yml uses absolute paths under /media.
+# Galaxy and playbook MUST share ANSIBLE_CONFIG or collections land in different trees.
 chroot_install_ansible_collections() {
   local mnt="$1"
   local coll_src="${ANSIBLE_COLLECTIONS_ROOT}/tekne/devops"
   local req_chroot="${ANSIBLE_ROOT}/requirements-chroot.yml"
+  local coll_install="${ANSIBLE_COLLECTIONS_ROOT}/ansible_collections"
+  local user_role="${coll_install}/tekne/devops/roles/user"
 
   if (( DRY_RUN )); then
     log DRY-RUN "write ${req_chroot} with source ${coll_src} and ansible-galaxy collection install"
@@ -532,15 +534,21 @@ chroot_install_ansible_collections() {
   cat > "${mnt}${req_chroot}" <<EOF
 ---
 collections:
-  - name: community.general
-  - name: ansible.posix
   - name: tekne.devops
     type: dir
     source: ${coll_src}
+  - name: community.general
+  - name: ansible.posix
 EOF
 
   log INFO "Installing Ansible collections from ${req_chroot} (tekne.devops @ ${coll_src})..."
-  chroot_run "$mnt" ansible-galaxy collection install -r "${req_chroot}" --force
+  chroot_run "$mnt" env ANSIBLE_CONFIG="${ANSIBLE_ROOT}/ansible.cfg" \
+    ansible-galaxy collection install -r "${req_chroot}" --force
+
+  [[ -f "${mnt}${user_role}/tasks/main.yml" ]] \
+    || die "tekne.devops.user not installed at ${user_role} — check ansible-galaxy output and collections_path in ${ANSIBLE_ROOT}/ansible.cfg"
+
+  log INFO "Collections OK: tekne.devops.user at ${user_role}"
 }
 
 # Decrypt vault and verify keys required for this host (needs staged vault password file).
