@@ -44,6 +44,7 @@
         - jenkins
         - gerbera
         - repotekne
+        - hermes
 
     - name: Read hostname from /etc/hostname
       ansible.builtin.slurp:
@@ -146,3 +147,6 @@
 
     - role: tekne.devops.jenkins
       tags: [jenkins]
+
+    - role: tekne.devops.hermes
+      tags: [hermes]
