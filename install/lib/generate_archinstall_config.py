@@ -114,33 +114,50 @@ def build_disk_config(
     disk1: str,
     disk1_mount: str,
     disk1_start_mib: int,
+    *,
+    disk2: str | None = None,
+    disk2_mount: str | None = None,
+    disk2_start_mib: int = 1,
 ) -> dict[str, Any]:
-    """Two-disk layout: disk0 = ESP + ROOT, disk1 = HOME or DOCKER."""
+    """Two- or three-disk layout: disk0 = ESP + ROOT, disk1 = HOME or DOCKER, optional disk2."""
     g = _global()
     root_start = g["esp_size_mib"] + 1
     disk0_mib = disk_size_mib(disk0)
     disk1_mib = disk_size_mib(disk1)
     root_size_mib = remaining_partition_mib(disk0_mib, root_start)
     disk1_size_mib = remaining_partition_mib(disk1_mib, disk1_start_mib)
+    device_modifications: list[dict[str, Any]] = [
+        {
+            "device": disk0,
+            "wipe": True,
+            "partitions": [
+                _partition_esp(),
+                _partition_f2fs("/", root_start, root_size_mib),
+            ],
+        },
+        {
+            "device": disk1,
+            "wipe": True,
+            "partitions": [
+                _partition_f2fs(disk1_mount, disk1_start_mib, disk1_size_mib),
+            ],
+        },
+    ]
+    if disk2 and disk2_mount:
+        disk2_mib = disk_size_mib(disk2)
+        disk2_size_mib = remaining_partition_mib(disk2_mib, disk2_start_mib)
+        device_modifications.append(
+            {
+                "device": disk2,
+                "wipe": True,
+                "partitions": [
+                    _partition_f2fs(disk2_mount, disk2_start_mib, disk2_size_mib),
+                ],
+            },
+        )
     return {
         "config_type": "manual_partitioning",
-        "device_modifications": [
-            {
-                "device": disk0,
-                "wipe": True,
-                "partitions": [
-                    _partition_esp(),
-                    _partition_f2fs("/", root_start, root_size_mib),
-                ],
-            },
-            {
-                "device": disk1,
-                "wipe": True,
-                "partitions": [
-                    _partition_f2fs(disk1_mount, disk1_start_mib, disk1_size_mib),
-                ],
-            },
-        ],
+        "device_modifications": device_modifications,
     }
 
 
@@ -212,6 +229,9 @@ def build_config(
             disk1,
             profile["disk1_mount"],
             profile["disk1_start_mib"],
+            disk2=profile.get("disk2"),
+            disk2_mount=profile.get("disk2_mount"),
+            disk2_start_mib=profile.get("disk2_start_mib", 1),
         ),
         "swap": {"enabled": False},
         "services": profile["services"],

@@ -88,11 +88,8 @@
       "kernel_pkg": "linux-tkg-aster",
       "mcode_packages": [
         "mesa", "lib32-mesa", "vulkan-intel", "lib32-vulkan-intel", "xorg-server",
-        "lib32-opencl-nvidia-tkg", "lib32-vulkan-icd-loader", "lib32-nvidia-utils-tkg",
-        "nvidia-open-dkms-tkg", "nvidia-settings-tkg", "opencl-nvidia-tkg",
-        "vulkan-icd-loader", "nvidia-utils-tkg", "sof-firmware", "upd72020x-fw",
-        "wd719x-firmware", "ast-firmware", "aic94xx-firmware", "brightnessctl",
-        "libinput", "thermald", "tlp", "tlpui", "pipewire-audio", "libldac", "libfreeaptx"
+        "sof-firmware", "upd72020x-fw", "wd719x-firmware", "ast-firmware", "aic94xx-firmware",
+        "brightnessctl", "libinput", "thermald", "tlp", "tlpui", "pipewire-audio", "libldac", "libfreeaptx"
       ],
       "efi_extra": " mt7925e.disable_aspm=1",
       "efi_intel": "",
@@ -119,14 +116,18 @@
       "role": "pc",
       "disk0": "/dev/nvme0",
       "disk1": "/dev/nvme1",
+      "disk2": "/dev/nvme2",
       "storage_kind": "nvme",
       "disk1_layout": "docker",
       "disk1_mount": "/var/lib/docker",
       "disk1_start_mib": 0,
+      "disk2_layout": "home",
+      "disk2_mount": "/home",
+      "disk2_start_mib": 1,
       "kernel_suffix": "-tkg-yugen",
       "kernel_pkg": "linux-tkg-yugen",
       "mcode_packages": [
-        "lib32-opencl-nvidia", "lib32-vulkan-icd-loader", "lib32-nvidia-utils",
+        "lib32-opencl-nvidia-tkg", "lib32-vulkan-icd-loader", "lib32-nvidia-utils-tkg",
         "nvidia-open-dkms-tkg", "nvidia-settings-tkg", "opencl-nvidia-tkg",
         "vulkan-icd-loader", "nvidia-utils-tkg", "sound-theme-smooth",
         "upd72020x-fw", "wd719x-firmware", "ast-firmware", "aic94xx-firmware"

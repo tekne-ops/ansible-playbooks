@@ -66,6 +66,10 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
     role: dict[str, str] = {}
     disk0: dict[str, str] = {}
     disk1: dict[str, str] = {}
+    disk2: dict[str, str] = {}
+    disk2_layout: dict[str, str] = {}
+    disk2_mount: dict[str, str] = {}
+    disk2_start_mib: dict[str, str] = {}
     storage: dict[str, str] = {}
     layout: dict[str, str] = {}
     kernel: dict[str, str] = {}
@@ -77,6 +81,11 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         role[name] = profile["role"]
         disk0[name] = profile["disk0"]
         disk1[name] = profile["disk1"]
+        if profile.get("disk2"):
+            disk2[name] = profile["disk2"]
+            disk2_layout[name] = profile.get("disk2_layout", "home")
+            disk2_mount[name] = profile.get("disk2_mount", "/home")
+            disk2_start_mib[name] = str(profile.get("disk2_start_mib", 1))
         storage[name] = profile["storage_kind"]
         layout[name] = profile["disk1_layout"]
         kernel[name] = profile["kernel_suffix"]
@@ -88,6 +97,10 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         _bash_assoc("HOST_ROLE", role),
         _bash_assoc("HOST_DISK0", disk0),
         _bash_assoc("HOST_DISK1", disk1),
+        _bash_assoc("HOST_DISK2", disk2),
+        _bash_assoc("HOST_DISK2_LAYOUT", disk2_layout),
+        _bash_assoc("HOST_DISK2_MOUNT", disk2_mount),
+        _bash_assoc("HOST_DISK2_START_MIB", disk2_start_mib),
         _bash_assoc("HOST_STORAGE_KIND", storage),
         _bash_assoc("HOST_DISK1_LAYOUT", layout),
         _bash_assoc("HOST_KERNEL", kernel),

@@ -684,7 +684,15 @@ host_banner() {
   local host="$1"
   log INFO "Profile: $host (${HOST_ROLE[$host]})"
   log INFO "Disk0 (BOOT/ROOT): $(host_disk_path "$host" 0)  Disk1 (${HOST_DISK1_LAYOUT[$host]}): $(host_disk_path "$host" 1)"
+  if host_has_disk2 "$host"; then
+    log INFO "Disk2 (${HOST_DISK2_LAYOUT[$host]}): $(host_disk_path "$host" 2) -> ${HOST_DISK2_MOUNT[$host]}"
+  fi
   log INFO "Storage: ${HOST_STORAGE_KIND[$host]} | Kernel: linux${HOST_KERNEL[$host]}"
+}
+
+host_has_disk2() {
+  local host="$1"
+  [[ -n "${HOST_DISK2[$host]:-}" ]]
 }
 
 # NVMe namespace device (e.g. /dev/nvme0 -> /dev/nvme0n1)
@@ -707,8 +715,10 @@ host_disk_path() {
   local ctrl
   if [[ "$disk_idx" == 0 ]]; then
     ctrl="${HOST_DISK0[$host]}"
-  else
+  elif [[ "$disk_idx" == 1 ]]; then
     ctrl="${HOST_DISK1[$host]}"
+  else
+    ctrl="${HOST_DISK2[$host]}"
   fi
   if [[ "${HOST_STORAGE_KIND[$host]}" == nvme ]]; then
     nvme_ns "$ctrl"
@@ -737,6 +747,9 @@ confirm_destroy() {
   echo "  This will SECURE-ERASE (NVMe only) and repartition ALL data on:"
   echo "    Disk0: $(host_disk_path "$host" 0) (BOOT + ROOT)"
   echo "    Disk1: $(host_disk_path "$host" 1) (${HOST_DISK1_LAYOUT[$host]})"
+  if host_has_disk2 "$host"; then
+    echo "    Disk2: $(host_disk_path "$host" 2) (${HOST_DISK2_LAYOUT[$host]} -> ${HOST_DISK2_MOUNT[$host]})"
+  fi
   echo "  Kernel package: linux${HOST_KERNEL[$host]}"
   echo "  Microcode/GPU stack: ${HOST_MCODE[$host]}"
   echo "================================================================"
@@ -765,6 +778,11 @@ task_format_nvme() {
   local host="$1"
   local ctrl0="${HOST_DISK0[$host]}"
   local ctrl1="${HOST_DISK1[$host]}"
+  local -a ctrls=("$ctrl0" "$ctrl1")
+
+  if host_has_disk2 "$host"; then
+    ctrls+=("${HOST_DISK2[$host]}")
+  fi
 
   if [[ "${HOST_STORAGE_KIND[$host]}" == virt ]]; then
     log INFO "=== Task 1: skip NVMe secure erase (virtio: ${ctrl0}, ${ctrl1}) ==="
@@ -774,7 +792,7 @@ task_format_nvme() {
 
   log INFO "=== Task 1: NVMe format (ses=2 secure erase) ==="
 
-  for ctrl in "$ctrl0" "$ctrl1"; do
+  for ctrl in "${ctrls[@]}"; do
     if (( ! DRY_RUN )); then
       nvme_ctrl_exists "$ctrl" || die "NVMe controller not found: $ctrl (expected char device; namespace: $(nvme_ns "$ctrl"))"
     fi
@@ -831,6 +849,29 @@ task_partition() {
       name 1 DOCKER \
       print free
   fi
+
+  if host_has_disk2 "$host"; then
+    local disk2="${HOST_DISK2_LAYOUT[$host]}"
+    local disk2_dev
+    disk2_dev="$(host_disk_path "$host" 2)"
+    log INFO "disk2=$disk2_dev ($disk2 -> ${HOST_DISK2_MOUNT[$host]})"
+    if (( ! DRY_RUN )); then
+      [[ -b "$disk2_dev" ]] || die "Disk not found: $disk2_dev"
+    fi
+    if [[ "$disk2" == home ]]; then
+      run parted -a optimal "$disk2_dev" --script \
+        mklabel gpt \
+        mkpart f2fs 1% 100% \
+        name 1 HOME \
+        print free
+    else
+      run parted -a optimal "$disk2_dev" --script \
+        mklabel gpt \
+        mkpart f2fs 0% 100% \
+        name 1 DATA \
+        print free
+    fi
+  fi
   partprobe_host "$host"
 }
 
@@ -859,6 +900,15 @@ task_mkfs() {
   run /usr/bin/mkfs.f2fs -l ROOT -i $F2FS_MKFS_OPTS "$part_root"
   # shellcheck disable=SC2086
   run /usr/bin/mkfs.f2fs -l "$label_disk1" -i $F2FS_MKFS_OPTS "$part_disk1"
+
+  if host_has_disk2 "$host"; then
+    local part_disk2 label_disk2="${HOST_DISK2_LAYOUT[$host]}"
+    part_disk2="$(host_part_path "$host" 2 1)"
+    label_disk2="${label_disk2^^}"
+    log INFO "${label_disk2}=$part_disk2"
+    # shellcheck disable=SC2086
+    run /usr/bin/mkfs.f2fs -l "$label_disk2" -i $F2FS_MKFS_OPTS "$part_disk2"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -893,6 +943,14 @@ task_mount() {
   fi
   run /usr/bin/mount "$boot" "$mnt_root/boot"
   run /usr/bin/mount -o "$F2FS_MNT_OPTS" "$part_disk1" "$mnt_disk1"
+
+  if host_has_disk2 "$host"; then
+    local part_disk2 mnt_disk2="${INSTALL_ROOT}${HOST_DISK2_MOUNT[$host]}"
+    part_disk2="$(host_part_path "$host" 2 1)"
+    log INFO "disk2 -> $mnt_disk2"
+    run mkdir -p "$mnt_disk2"
+    run /usr/bin/mount -o "$F2FS_MNT_OPTS" "$part_disk2" "$mnt_disk2"
+  fi
 
   log INFO "Mounted:"
   if (( ! DRY_RUN )); then
@@ -1205,8 +1263,19 @@ task_tekne_post_archinstall() {
       log INFO "Setting F2FS label ${disk1_label} on $disk1_part"
       f2fs.fslabel "$disk1_part" "$disk1_label" 2>/dev/null || true
     fi
+    if host_has_disk2 "$host" && command -v f2fs.fslabel &>/dev/null; then
+      local disk2_mnt="${mnt}${HOST_DISK2_MOUNT[$host]}"
+      local disk2_part
+      disk2_part="$(findmnt -no SOURCE "$disk2_mnt")"
+      local disk2_label="${HOST_DISK2_LAYOUT[$host]}"
+      disk2_label="${disk2_label^^}"
+      if [[ -n "$disk2_part" ]]; then
+        log INFO "Setting F2FS label ${disk2_label} on $disk2_part"
+        f2fs.fslabel "$disk2_part" "$disk2_label" 2>/dev/null || true
+      fi
+    fi
   else
-    log DRY-RUN "f2fs.fslabel / fatlabel for ROOT, BOOT, disk1"
+    log DRY-RUN "f2fs.fslabel / fatlabel for ROOT, BOOT, disk1, disk2"
   fi
 
   chroot_bash "$mnt" "grep -qF '${host}.tekne.sv' /etc/hosts || echo '127.0.0.1 localhost ${host}.tekne.sv ${host}' >> /etc/hosts"
@@ -1324,7 +1393,7 @@ Options:
 Hosts:
   THEMIS   server (nvme0 BOOT/ROOT, nvme1 DOCKER)
   ASTER    laptop (nvme0 BOOT/ROOT, nvme1 HOME)
-  YUGEN    pc     (nvme0 BOOT/ROOT, nvme1 DOCKER)
+  YUGEN    pc     (nvme0 BOOT/ROOT, nvme1 DOCKER, nvme2 HOME)
   KVM      vm     (vda BOOT/ROOT, vdb HOME)
 
 If HOST is omitted, detection uses DMI product/board name or hostname.
