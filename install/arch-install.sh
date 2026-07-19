@@ -413,7 +413,7 @@ configure_uki_boot() {
   kernel_pkg="linux${kernel}"
   uki_efi="arch-${kernel_pkg}.efi"
   boot_disk="$(host_disk_path "$host" 0)"
-  params_line="kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2${HOST_EFI_INTEL[$host]}${HOST_EFI_EXTRA[$host]}"
+  params_line="${HOST_KERNEL_CMDLINE[$host]}${HOST_EFI_INTEL[$host]}${HOST_EFI_EXTRA[$host]}"
 
   log INFO "=== Finalize UKI boot (post-Ansible): boot_disk=$boot_disk kernel=${kernel_pkg} uki=${uki_efi} ==="
 
@@ -624,6 +624,19 @@ themis_cache_bind_mounts() {
     /mnt/cache/build:/var/cache/build
   )
   local pair src dst
+  if (( ! DRY_RUN )); then
+    if arch-chroot "$mnt" test -d /mnt/cache; then
+      chroot_run "$mnt" mkdir -p \
+        /mnt/cache/tmp \
+        /mnt/cache/pacman \
+        /mnt/cache/docker-build \
+        /mnt/cache/staging \
+        /mnt/cache/build
+    else
+      log WARN "THEMIS: /mnt/cache not mounted; skip cache bind mounts (add disk2 in hosts.json)"
+      return 0
+    fi
+  fi
   for pair in "${binds[@]}"; do
     src="${pair%%:*}"
     dst="${pair##*:}"
@@ -1391,7 +1404,7 @@ Options:
   -h, --help                 Show this help
 
 Hosts:
-  THEMIS   server (nvme0 BOOT/ROOT, nvme1 DOCKER)
+  THEMIS   server (nvme0 BOOT/ROOT, nvme1 DOCKER, nvme2 CACHE=/mnt/cache)
   ASTER    laptop (nvme0 BOOT/ROOT, nvme1 HOME)
   YUGEN    pc     (nvme0 BOOT/ROOT, nvme1 DOCKER, nvme2 HOME)
   KVM      vm     (vda BOOT/ROOT, vdb HOME)

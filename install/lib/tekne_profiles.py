@@ -76,6 +76,12 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
     mcode: dict[str, str] = {}
     efi_extra: dict[str, str] = {}
     efi_intel: dict[str, str] = {}
+    kernel_cmdline: dict[str, str] = {}
+
+    _default_cmdline = (
+        "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog "
+        "quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2"
+    )
 
     for name, profile in hosts.items():
         role[name] = profile["role"]
@@ -92,6 +98,7 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         mcode[name] = " ".join(profile["mcode_packages"])
         efi_extra[name] = profile.get("efi_extra", "")
         efi_intel[name] = profile.get("efi_intel", "")
+        kernel_cmdline[name] = profile.get("kernel_cmdline", _default_cmdline)
 
     parts = [
         _bash_assoc("HOST_ROLE", role),
@@ -105,6 +112,7 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         _bash_assoc("HOST_DISK1_LAYOUT", layout),
         _bash_assoc("HOST_KERNEL", kernel),
         _bash_assoc("HOST_MCODE", mcode),
+        _bash_assoc("HOST_KERNEL_CMDLINE", kernel_cmdline),
         _bash_assoc("HOST_EFI_EXTRA", efi_extra),
         _bash_assoc("HOST_EFI_INTEL", efi_intel),
         f'declare -gra PACSTRAP_BASE_PKGS=({" ".join(shlex.quote(p) for p in g["pacstrap_base_packages"])})',

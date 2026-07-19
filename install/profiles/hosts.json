@@ -44,15 +44,20 @@
       "role": "server",
       "disk0": "/dev/nvme0",
       "disk1": "/dev/nvme1",
+      "disk2": "/dev/nvme2",
       "storage_kind": "nvme",
       "disk1_layout": "docker",
       "disk1_mount": "/var/lib/docker",
       "disk1_start_mib": 0,
+      "disk2_layout": "cache",
+      "disk2_mount": "/mnt/cache",
+      "disk2_start_mib": 0,
       "kernel_suffix": "-tkg-themis",
       "kernel_pkg": "linux-tkg-themis",
       "mcode_packages": [
         "mesa", "lib32-mesa", "vulkan-intel", "lib32-vulkan-intel"
       ],
+      "kernel_cmdline": "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2",
       "efi_extra": "",
       "efi_intel": " enable_guc=3 intel_pstate=passive",
       "additional_repositories": [],
@@ -88,9 +93,13 @@
       "kernel_pkg": "linux-tkg-aster",
       "mcode_packages": [
         "mesa", "lib32-mesa", "vulkan-intel", "lib32-vulkan-intel", "xorg-server",
+        "lib32-opencl-nvidia-tkg", "lib32-vulkan-icd-loader", "lib32-nvidia-utils-tkg",
+        "nvidia-open-dkms-tkg", "nvidia-settings-tkg", "opencl-nvidia-tkg",
+        "vulkan-icd-loader", "nvidia-utils-tkg", "nvidia-prime",
         "sof-firmware", "upd72020x-fw", "wd719x-firmware", "ast-firmware", "aic94xx-firmware",
         "brightnessctl", "libinput", "thermald", "tlp", "tlpui", "pipewire-audio", "libldac", "libfreeaptx"
       ],
+      "kernel_cmdline": "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2",
       "efi_extra": " mt7925e.disable_aspm=1",
       "efi_intel": "",
       "additional_repositories": ["multilib"],
@@ -132,6 +141,7 @@
         "vulkan-icd-loader", "nvidia-utils-tkg", "sound-theme-smooth",
         "upd72020x-fw", "wd719x-firmware", "ast-firmware", "aic94xx-firmware"
       ],
+      "kernel_cmdline": "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2",
       "efi_extra": "",
       "efi_intel": "",
       "additional_repositories": ["multilib"],
@@ -162,6 +172,7 @@
       "mcode_packages": [
         "mesa", "lib32-mesa", "vulkan-intel", "lib32-vulkan-intel"
       ],
+      "kernel_cmdline": "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2",
       "efi_extra": "",
       "efi_intel": " enable_guc=3 intel_pstate=passive",
       "additional_repositories": ["multilib"],

@@ -49,9 +49,9 @@ ansible-playbooks/
 
 | Hostname | Type | Description |
 |----------|------|-------------|
-| **ASTER** | Laptop | Single NVMe, WiFi (iwd), Intel GPU, LightDM |
-| **YUGEN** | Workstation | Triple NVMe, NVIDIA GPU (TKG), gaming-optimized |
-| **THEMIS** | Server | Dual NVMe, bridge (br0), Docker services, no desktop |
+| **ASTER** | Laptop | Dual NVMe (HOME), hybrid Intel+NVIDIA, max AC gaming / BAT save |
+| **YUGEN** | Workstation | Triple NVMe (DOCKER+HOME), NVIDIA GPU (TKG), gaming-optimized |
+| **THEMIS** | Server | Triple NVMe (DOCKER+CACHE), bridge (br0), Docker services |
 | **KVM** | VM | vda BOOT/ROOT, vdb HOME |
 
 Hostname is read from `/etc/hostname` at runtime; `main.yml` asserts it matches a known profile.
