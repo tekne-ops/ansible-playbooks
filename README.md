@@ -32,8 +32,7 @@ ansible-playbooks/
 │   ├── profiles/
 │   │   └── hosts.json       # Single source for host disks, packages, kernel
 │   └── lib/
-│       ├── tekne_profiles.py
-│       └── generate_archinstall_config.py
+│       └── tekne_profiles.py
 ├── playbooks/
 │   ├── main.yml             # Primary host configuration playbook
 │   ├── k8s.yml              # Kubernetes node prerequisites (Debian)

@@ -17,12 +17,14 @@
 set -euo pipefail
 
 readonly SCRIPT_NAME="${0##*/}"
-readonly VERSION="1.1.0"
+readonly VERSION="1.2.0"
 
 readonly INSTALL_ROOT="${TEKNE_INSTALL_ROOT:-/mnt}"
 readonly ANSIBLE_ROOT=/media/ansible-playbooks
 readonly ANSIBLE_COLLECTIONS_ROOT=/media/ansible-collections
 readonly CHROOT_VAULT_PASS=/root/.ansible_vault_pass
+LIVE_ANSIBLE_ROOT=""
+LIVE_ANSIBLE_COLLECTIONS_ROOT=""
 
 DRY_RUN=${DRY_RUN:-0}
 FORCE_HOST="${FORCE_HOST:-}"
@@ -56,6 +58,8 @@ load_host_profiles() {
   local profiles_py
   local root
   root="$(_arch_install_dir)"
+  LIVE_ANSIBLE_ROOT="$(realpath -m "${root}/..")"
+  LIVE_ANSIBLE_COLLECTIONS_ROOT="$(realpath -m "${LIVE_ANSIBLE_ROOT}/../ansible-collections")"
   profiles_py="${root}/lib/tekne_profiles.py"
   command -v python3 &>/dev/null || die "python3 required to load install profiles"
   [[ -f "$profiles_py" ]] || die "Missing profile loader: $profiles_py"
@@ -109,7 +113,7 @@ require_root() {
 
 require_live_cmds() {
   local missing=() cmd
-  for cmd in nvme parted mkfs.vfat mkfs.f2fs mount pacman pacstrap genfstab reflector \
+  for cmd in nvme parted mkfs.vfat mkfs.f2fs mount pacman pacstrap genfstab reflector rsync \
     arch-chroot efibootmgr timedatectl partprobe curl ping repo-add; do
     command -v "$cmd" &>/dev/null || missing+=("$cmd")
   done
@@ -193,13 +197,21 @@ log_network_diagnostics() {
 }
 
 live_wifi_iface() {
-  ls /sys/class/net 2>/dev/null | grep -E '^wl' | head -1 || true
+  local path
+  for path in /sys/class/net/wl*; do
+    if [[ -e "$path" ]]; then
+      basename "$path"
+      return 0
+    fi
+  done
+  return 0
 }
 
 live_has_ethernet_carrier() {
-  local iface carrier
-  for iface in $(ls /sys/class/net 2>/dev/null | grep -E '^en|^eth' || true); do
-    carrier="$(cat "/sys/class/net/${iface}/carrier" 2>/dev/null || echo 0)"
+  local path carrier
+  for path in /sys/class/net/en* /sys/class/net/eth*; do
+    [[ -e "$path" ]] || continue
+    carrier="$(cat "${path}/carrier" 2>/dev/null || echo 0)"
     [[ "$carrier" == "1" ]] && return 0
   done
   return 1
@@ -327,30 +339,6 @@ wait_for_network() {
   die "Network unavailable after ${tries} attempts (~$((tries * 2))s). Connect on the live ISO, or re-run with --skip-network-wait."
 }
 
-prepare_live_pacman_for_archinstall() {
-  local host="$1"
-
-  if (( DRY_RUN )); then
-    log DRY-RUN "prepare_live_pacman_for_archinstall $host"
-    return 0
-  fi
-
-  log INFO "=== Live ISO pacman (repos + mirrorlist) before archinstall ==="
-  append_pacman_repo "$host"
-
-  log INFO "Updating live mirrorlist with reflector..."
-  run /usr/bin/reflector \
-    --country 'United States' \
-    --latest 100 \
-    --sort rate \
-    --protocol 'https,ftp' \
-    --age 168 \
-    --save /etc/pacman.d/mirrorlist
-
-  log INFO "Synchronizing live package databases..."
-  run pacman -Syy
-}
-
 # Copy vault password file into chroot (live-ISO paths are not visible in arch-chroot).
 chroot_stage_vault_pass() {
   local mnt="$1"
@@ -370,6 +358,33 @@ chroot_cleanup_vault_pass() {
     return 0
   fi
   run rm -f "$mnt${CHROOT_VAULT_PASS}"
+}
+
+cleanup_install_resources() {
+  local status=$?
+  trap - EXIT INT TERM
+  if (( DRY_RUN )); then
+    exit "$status"
+  fi
+
+  # Unwind temporary install-only mounts in reverse dependency order.
+  local path
+  for path in \
+    "$INSTALL_ROOT/sys/firmware/efi/efivars" \
+    "$INSTALL_ROOT/var/cache/build" \
+    "$INSTALL_ROOT/var/cache/staging" \
+    "$INSTALL_ROOT/var/cache/docker/build" \
+    "$INSTALL_ROOT/var/cache/pacman/pkg" \
+    "$INSTALL_ROOT/tmp"; do
+    if mountpoint -q "$path" 2>/dev/null; then
+      umount "$path" 2>/dev/null || log WARN "Could not unmount temporary path: $path"
+    fi
+  done
+
+  if [[ -n "$VAULT_PASS_FILE" ]]; then
+    rm -f "$INSTALL_ROOT${CHROOT_VAULT_PASS}"
+  fi
+  exit "$status"
 }
 
 # efibootmgr needs host NVRAM inside the install chroot (Arch wiki install guide).
@@ -456,6 +471,8 @@ EOF
   chroot_run "$mnt" mkinitcpio -p "${kernel_pkg}"
 
   chroot_mount_efivars "$mnt"
+  # Expansion is intentionally deferred to the shell inside the chroot.
+  # shellcheck disable=SC2016
   chroot_bash "$mnt" '
     bootnum=""
     while IFS= read -r line; do
@@ -478,40 +495,25 @@ EOF
   chroot_umount_efivars "$mnt"
 }
 
-# Clone or fast-forward ansible-playbooks + ansible-collections under /media in chroot.
-ensure_ansible_repos() {
+# Stage the exact installer checkout into the target. This keeps the chroot on the
+# same revision as the live-ISO process and avoids a GitHub dependency mid-install.
+stage_ansible_sources() {
   local mnt="$1"
-  local path url
+
+  [[ -f "${LIVE_ANSIBLE_COLLECTIONS_ROOT}/tekne/devops/galaxy.yml" ]] \
+    || die "Missing sibling ansible-collections checkout: ${LIVE_ANSIBLE_COLLECTIONS_ROOT}"
 
   chroot_run "$mnt" mkdir -p /media
 
-  path="$ANSIBLE_ROOT"
-  url=https://github.com/tekne-ops/ansible-playbooks
-  if [[ -d "${mnt}${path}/.git" ]]; then
-    log INFO "Refreshing ansible-playbooks (git pull --ff-only)..."
-    chroot_run "$mnt" git -C "$path" pull --ff-only
-  elif [[ -e "${mnt}${path}" ]]; then
-    log WARN "Removing incomplete ${path} before clone"
-    run rm -rf "${mnt}${path}"
-    chroot_run "$mnt" git clone "$url" "$path"
-  else
-    log INFO "Cloning ansible-playbooks into ${path}..."
-    chroot_run "$mnt" git clone "$url" "$path"
-  fi
+  log INFO "Staging local ansible-playbooks checkout into chroot..."
+  run mkdir -p "${mnt}${ANSIBLE_ROOT}"
+  run rsync -a --delete \
+    "${LIVE_ANSIBLE_ROOT}/" "${mnt}${ANSIBLE_ROOT}/"
 
-  path="$ANSIBLE_COLLECTIONS_ROOT"
-  url=https://github.com/tekne-ops/ansible-collections
-  if [[ -d "${mnt}${path}/.git" ]]; then
-    log INFO "Refreshing ansible-collections (git pull --ff-only)..."
-    chroot_run "$mnt" git -C "$path" pull --ff-only
-  elif [[ -e "${mnt}${path}" ]]; then
-    log WARN "Removing incomplete ${path} before clone"
-    run rm -rf "${mnt}${path}"
-    chroot_run "$mnt" git clone "$url" "$path"
-  else
-    log INFO "Cloning ansible-collections into ${path}..."
-    chroot_run "$mnt" git clone "$url" "$path"
-  fi
+  log INFO "Staging local ansible-collections checkout into chroot..."
+  run mkdir -p "${mnt}${ANSIBLE_COLLECTIONS_ROOT}"
+  run rsync -a --delete \
+    "${LIVE_ANSIBLE_COLLECTIONS_ROOT}/" "${mnt}${ANSIBLE_COLLECTIONS_ROOT}/"
 }
 
 # Chroot installs: requirements-chroot.yml uses absolute paths under /media.
@@ -529,7 +531,7 @@ chroot_install_ansible_collections() {
   fi
 
   [[ -f "${mnt}${coll_src}/galaxy.yml" ]] \
-    || die "Collection not found at ${coll_src}/galaxy.yml (ensure_ansible_repos clone failed?)"
+    || die "Collection not found at ${coll_src}/galaxy.yml (source staging failed)"
 
   cat > "${mnt}${req_chroot}" <<EOF
 ---
@@ -601,7 +603,6 @@ ansible_chroot_playbook() {
   chroot_run "$mnt" env ANSIBLE_CONFIG="${ANSIBLE_ROOT}/ansible.cfg" \
     ansible-playbook "${ANSIBLE_ROOT}/playbooks/main.yml" \
     --tags "$tags" \
-    "${vault_args[@]}" \
     "$@"
 }
 
@@ -623,9 +624,9 @@ themis_cache_bind_mounts() {
     /mnt/cache/staging:/var/cache/staging
     /mnt/cache/build:/var/cache/build
   )
-  local pair src dst
+  local pair src dst host_src host_dst
   if (( ! DRY_RUN )); then
-    if arch-chroot "$mnt" test -d /mnt/cache; then
+    if [[ -d "${mnt}/mnt/cache" ]]; then
       chroot_run "$mnt" mkdir -p \
         /mnt/cache/tmp \
         /mnt/cache/pacman \
@@ -640,12 +641,17 @@ themis_cache_bind_mounts() {
   for pair in "${binds[@]}"; do
     src="${pair%%:*}"
     dst="${pair##*:}"
+    host_src="${mnt}${src}"
+    host_dst="${mnt}${dst}"
     if (( DRY_RUN )); then
-      log DRY-RUN "mount --bind $src $dst (in chroot)"
+      log DRY-RUN "mount --bind $host_src $host_dst"
       continue
     fi
-    if arch-chroot "$mnt" test -d "$src"; then
-      chroot_run "$mnt" mount --bind "$src" "$dst"
+    if [[ -d "$host_src" ]]; then
+      mkdir -p "$host_dst"
+      if ! mountpoint -q "$host_dst"; then
+        run mount --bind "$host_src" "$host_dst"
+      fi
     else
       log WARN "THEMIS: $src not found in chroot; skipping bind mount to $dst"
     fi
@@ -727,8 +733,10 @@ host_disk_path() {
   local host="$1" disk_idx="$2"
   local ctrl
   if [[ "$disk_idx" == 0 ]]; then
+    # shellcheck disable=SC2153 # generated dynamically by tekne_profiles.py
     ctrl="${HOST_DISK0[$host]}"
   elif [[ "$disk_idx" == 1 ]]; then
+    # shellcheck disable=SC2153 # generated dynamically by tekne_profiles.py
     ctrl="${HOST_DISK1[$host]}"
   else
     ctrl="${HOST_DISK2[$host]}"
@@ -757,7 +765,7 @@ confirm_destroy() {
   echo
   echo "================================================================"
   echo "  DESTRUCTIVE INSTALL — host: $host (${HOST_ROLE[$host]})"
-  echo "  This will SECURE-ERASE (NVMe only) and repartition ALL data on:"
+  echo "  This will ERASE (NVMe user-data erase) and repartition ALL data on:"
   echo "    Disk0: $(host_disk_path "$host" 0) (BOOT + ROOT)"
   echo "    Disk1: $(host_disk_path "$host" 1) (${HOST_DISK1_LAYOUT[$host]})"
   if host_has_disk2 "$host"; then
@@ -785,7 +793,7 @@ task_set_ntp() {
 }
 
 # ---------------------------------------------------------------------------
-# Task 1 — NVMe secure format
+# Task 1 — NVMe user-data erase
 # ---------------------------------------------------------------------------
 task_format_nvme() {
   local host="$1"
@@ -803,7 +811,7 @@ task_format_nvme() {
     return 0
   fi
 
-  log INFO "=== Task 1: NVMe format (ses=2 secure erase) ==="
+  log INFO "=== Task 1: NVMe format (ses=1 user-data erase) ==="
 
   for ctrl in "${ctrls[@]}"; do
     if (( ! DRY_RUN )); then
@@ -811,9 +819,7 @@ task_format_nvme() {
     fi
     run nvme format "$ctrl" \
       --namespace-id=1 \
-      --lbaf=1 \
       --ses=1 \
-      --ms=1 \
       --reset \
       --force
   done
@@ -1015,9 +1021,13 @@ task_pacstrap() {
   require_mounted "$mnt"
 
   log INFO "Installing base system with pacstrap..."
-  # shellcheck disable=SC2086
+  local -a extra=()
+  if [[ -n "$mcode" ]]; then
+    # shellcheck disable=SC2206
+    extra=($mcode)
+  fi
   run /usr/bin/pacstrap -K "$mnt" "${PACSTRAP_BASE_PKGS[@]}" \
-    $mcode "linux${kernel}" "linux${kernel}-headers"
+    "${extra[@]}" "linux${kernel}" "linux${kernel}-headers"
 }
 
 # ---------------------------------------------------------------------------
@@ -1202,109 +1212,23 @@ task_run_ansible() {
     vault_args=(--ask-vault-pass)
   fi
 
-  ensure_ansible_repos "$mnt"
+  stage_ansible_sources "$mnt"
   require_vault_vars "$host" "$mnt"
 
   chroot_install_ansible_collections "$mnt"
 
-  case "$host" in
-    THEMIS)
-      log INFO "Running ansible-playbook for THEMIS (tags: user, network-host, os)..."
-      ansible_chroot_playbook "$mnt" "user,network-host,os" -e install_chroot_phase=true
-      ;;
-    ASTER)
-      log INFO "Running ansible-playbook for ASTER (tags: user, network-host, xfce4; WiFi connect deferred)..."
-      ansible_chroot_playbook "$mnt" "user,network-host,xfce4" \
-        -e network_connect_wifi=false \
-        -e install_chroot_phase=true
-      ;;
-    YUGEN)
-      log INFO "Running ansible-playbook for YUGEN (tags: user, network-host, xfce4)..."
-      ansible_chroot_playbook "$mnt" "user,network-host,xfce4" -e install_chroot_phase=true
-      ;;
-    KVM)
-      log INFO "Running ansible-playbook for KVM (tags: user, network-host; headless, no xfce4)..."
-      ansible_chroot_playbook "$mnt" "user,network-host" -e install_chroot_phase=true
-      ;;
-    *)
-      die "Unknown host for Ansible: $host"
-      ;;
-  esac
+  local tags="${HOST_CHROOT_ANSIBLE_TAGS[$host]}"
+  local -a extra_vars=(-e install_chroot_phase=true)
+  if [[ "$host" == ASTER ]]; then
+    extra_vars+=(-e network_connect_wifi=false)
+  fi
+  log INFO "Running chroot Ansible for ${host} (tags: ${tags})..."
+  ansible_chroot_playbook "$mnt" "$tags" "${vault_args[@]}" "${extra_vars[@]}"
 
   configure_uki_boot "$host" "$mnt"
 
   chroot_cleanup_vault_pass "$mnt"
   log INFO "Ansible configuration and UKI boot finalization completed."
-}
-
-# ---------------------------------------------------------------------------
-# Post-archinstall — F2FS labels, hosts, cache (archinstall leaves these to tekne)
-# ---------------------------------------------------------------------------
-task_tekne_post_archinstall() {
-  local host="$1"
-  local mnt="${TEKNE_INSTALL_ROOT:-/mnt}"
-  local layout="${HOST_DISK1_LAYOUT[$host]}"
-  local disk1_mnt
-
-  log INFO "=== Post-archinstall tekne adjustments ==="
-
-  require_chroot_ready "$mnt"
-
-  if [[ "$layout" == home ]]; then
-    disk1_mnt="${mnt}/home"
-  else
-    disk1_mnt="${mnt}/var/lib/docker"
-  fi
-
-  if (( ! DRY_RUN )); then
-    local root_part boot_part disk1_part
-    root_part="$(findmnt -no SOURCE "$mnt")"
-    boot_part="$(findmnt -no SOURCE "${mnt}/boot")"
-    disk1_part="$(findmnt -no SOURCE "$disk1_mnt")"
-
-    if [[ -n "$root_part" ]] && command -v f2fs.fslabel &>/dev/null; then
-      log INFO "Setting F2FS label ROOT on $root_part"
-      f2fs.fslabel "$root_part" ROOT 2>/dev/null || true
-    fi
-    if [[ -n "$boot_part" ]] && command -v fatlabel &>/dev/null; then
-      log INFO "Setting FAT label BOOT on $boot_part"
-      fatlabel "$boot_part" BOOT 2>/dev/null || true
-    fi
-    if [[ -n "$disk1_part" ]] && command -v f2fs.fslabel &>/dev/null; then
-      local disk1_label=DOCKER
-      [[ "$layout" == home ]] && disk1_label=HOME
-      log INFO "Setting F2FS label ${disk1_label} on $disk1_part"
-      f2fs.fslabel "$disk1_part" "$disk1_label" 2>/dev/null || true
-    fi
-    if host_has_disk2 "$host" && command -v f2fs.fslabel &>/dev/null; then
-      local disk2_mnt="${mnt}${HOST_DISK2_MOUNT[$host]}"
-      local disk2_part
-      disk2_part="$(findmnt -no SOURCE "$disk2_mnt")"
-      local disk2_label="${HOST_DISK2_LAYOUT[$host]}"
-      disk2_label="${disk2_label^^}"
-      if [[ -n "$disk2_part" ]]; then
-        log INFO "Setting F2FS label ${disk2_label} on $disk2_part"
-        f2fs.fslabel "$disk2_part" "$disk2_label" 2>/dev/null || true
-      fi
-    fi
-  else
-    log DRY-RUN "f2fs.fslabel / fatlabel for ROOT, BOOT, disk1, disk2"
-  fi
-
-  chroot_bash "$mnt" "grep -qF '${host}.tekne.sv' /etc/hosts || echo '127.0.0.1 localhost ${host}.tekne.sv ${host}' >> /etc/hosts"
-  chroot_bash "$mnt" 'mkdir -p /var/cache/{pacman/pkg,docker/build,staging,build}'
-
-  if [[ "$host" == THEMIS ]]; then
-    log INFO "THEMIS: cache bind mounts (skipped if /mnt/cache not present)..."
-    themis_cache_bind_mounts "$mnt"
-  fi
-}
-
-# Run tekne post-archinstall steps then task 9 (Ansible + UKI boot).
-tekne_run_post_archinstall() {
-  local host="$1"
-  task_tekne_post_archinstall "$host"
-  task_run_ansible "$host"
 }
 
 task_summary() {
@@ -1327,40 +1251,16 @@ print_post_install_steps() {
   echo "  2. Log in locally or over SSH."
   echo "  3. Run the post-install playbook from the installed copy of the repo:"
   echo
-  case "$host" in
-    ASTER|YUGEN)
-      echo "     cd ${playbook_dir}"
-      echo "     sudo ./workstation.sh"
-      echo
-      echo "  workstation.sh runs: network-host (WiFi on ASTER), os, pipewire,"
-      echo "  gaming, onedrive, bootstrap, nftables."
-      echo
-      echo "  Notes:"
-      echo "    - ASTER: WiFi connects on this run (deferred during live ISO install)."
-      echo "    - bootstrap pauses for OneDrive authentication."
-      echo "    - Log in to the desktop before bootstrap if you want XFCE theming applied."
-      ;;
-    THEMIS)
-      echo "     cd ${playbook_dir}"
-      echo "     sudo ansible-playbook main.yml \\"
-      echo "       --tags os,nftables,libvirt,docker-host,haproxy,repotekne,gerbera \\"
-      echo "       --ask-vault-pass"
-      echo
-      echo "  Or use ./server.sh once it is configured for the full server tag set."
-      ;;
-    KVM)
-      echo "     cd ${playbook_dir}"
-      echo "     sudo ansible-playbook main.yml \\"
-      echo "       --tags network-host,os,pipewire,nftables \\"
-      echo "       --ask-vault-pass"
-      echo
-      echo "  KVM is headless: do not run workstation.sh (no desktop/gaming/onedrive)."
-      ;;
-    *)
-      echo "     cd ${playbook_dir}"
-      echo "     sudo ansible-playbook main.yml --ask-vault-pass"
-      ;;
-  esac
+  echo "     cd ${playbook_dir%/playbooks}"
+  echo "     ${HOST_POST_INSTALL_COMMAND[$host]}"
+  echo
+  if [[ "$host" == ASTER ]]; then
+    echo "  ASTER WiFi connects on this run (deferred during live ISO install)."
+  fi
+  if [[ "$host" == ASTER || "$host" == YUGEN ]]; then
+    echo "  Bootstrap may pause for OneDrive authentication."
+    echo "  Log in to the desktop first if you want session-specific theming applied."
+  fi
   echo
   echo "  Vault: use --vault-password-file ~/.vault_pass instead of --ask-vault-pass"
   echo "  when running non-interactively."
@@ -1467,6 +1367,7 @@ main() {
   touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/tmp/arch-install.log"
 
   require_root
+  trap cleanup_install_resources EXIT INT TERM
   require_live_cmds
 
   local host

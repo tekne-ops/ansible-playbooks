@@ -19,7 +19,7 @@
       "vim-spell-es", "vim-spell-en", "vim-nerdtree", "vim-nerdcommenter",
       "vim-devicons", "vim-ansible",
       "mlocate", "bash-completion", "pkgfile", "efibootmgr", "acpi", "acpid",
-      "iwd", "wpa_supplicant", "wireless-regdb", "systemd-resolvconf",
+      "iwd", "wpa_supplicant", "wireless-regdb",
       "rsync", "git", "wget", "reflector",
       "iptables-nft", "less", "usb_modeswitch", "libsecret", "gzip", "tar", "zlib", "xz",
       "nvme-cli", "openssh", "openssl", "screen", "sudo", "gnupg", "bind", "cronie",
@@ -55,9 +55,9 @@
       "disk2_start_mib": 0,
       "kernel_suffix": "-tkg-themis",
       "kernel_pkg": "linux-tkg-themis",
-      "mcode_packages": [
-        "mesa", "lib32-mesa", "vulkan-intel", "lib32-vulkan-intel"
-      ],
+      "mcode_packages": [],
+      "chroot_ansible_tags": ["user", "network-host", "os", "gpu"],
+      "post_install_command": "./playbooks/server.sh",
       "kernel_cmdline": "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2",
       "efi_extra": "",
       "efi_intel": " enable_guc=3 intel_pstate=passive",
@@ -93,13 +93,12 @@
       "kernel_suffix": "-tkg-aster",
       "kernel_pkg": "linux-tkg-aster",
       "mcode_packages": [
-        "mesa", "lib32-mesa", "vulkan-intel", "lib32-vulkan-intel", "xorg-server",
-        "lib32-opencl-nvidia-tkg", "lib32-vulkan-icd-loader", "lib32-nvidia-utils-tkg",
-        "nvidia-open-dkms-tkg", "nvidia-settings-tkg", "opencl-nvidia-tkg",
-        "vulkan-icd-loader", "nvidia-utils-tkg", "nvidia-prime",
-        "sof-firmware", "upd72020x-fw", "wd719x-firmware", "ast-firmware", "aic94xx-firmware",
-        "brightnessctl", "libinput", "thermald", "tlp", "tlpui", "pipewire-audio", "libldac", "libfreeaptx"
+        "sof-firmware",
+        "brightnessctl", "libinput", "thermald", "tlp", "tlpui", "libldac", "libfreeaptx",
+        "bolt", "ethtool"
       ],
+      "chroot_ansible_tags": ["user", "network-host", "xfce4", "gpu"],
+      "post_install_command": "./playbooks/workstation.sh",
       "kernel_cmdline": "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2",
       "efi_extra": " mt7925e.disable_aspm=1",
       "efi_intel": "",
@@ -136,12 +135,9 @@
       "disk2_start_mib": 1,
       "kernel_suffix": "-tkg-yugen",
       "kernel_pkg": "linux-tkg-yugen",
-      "mcode_packages": [
-        "lib32-opencl-nvidia-tkg", "lib32-vulkan-icd-loader", "lib32-nvidia-utils-tkg",
-        "nvidia-open-dkms-tkg", "nvidia-settings-tkg", "opencl-nvidia-tkg",
-        "vulkan-icd-loader", "nvidia-utils-tkg", "sound-theme-smooth",
-        "upd72020x-fw", "wd719x-firmware", "ast-firmware", "aic94xx-firmware"
-      ],
+      "mcode_packages": [],
+      "chroot_ansible_tags": ["user", "network-host", "xfce4", "gpu"],
+      "post_install_command": "./playbooks/workstation.sh",
       "kernel_cmdline": "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2",
       "efi_extra": "",
       "efi_intel": "",
@@ -170,9 +166,9 @@
       "disk1_start_mib": 1,
       "kernel_suffix": "-tkg-themis",
       "kernel_pkg": "linux-tkg-themis",
-      "mcode_packages": [
-        "mesa", "lib32-mesa", "vulkan-intel", "lib32-vulkan-intel"
-      ],
+      "mcode_packages": [],
+      "chroot_ansible_tags": ["user", "network-host", "gpu"],
+      "post_install_command": "sudo ansible-playbook playbooks/main.yml --tags network-host,os,pipewire,nftables --ask-vault-pass",
       "kernel_cmdline": "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2",
       "efi_extra": "",
       "efi_intel": " enable_guc=3 intel_pstate=passive",

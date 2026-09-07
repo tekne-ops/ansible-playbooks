@@ -77,6 +77,8 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
     efi_extra: dict[str, str] = {}
     efi_intel: dict[str, str] = {}
     kernel_cmdline: dict[str, str] = {}
+    chroot_ansible_tags: dict[str, str] = {}
+    post_install_command: dict[str, str] = {}
 
     _default_cmdline = (
         "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog "
@@ -99,6 +101,8 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         efi_extra[name] = profile.get("efi_extra", "")
         efi_intel[name] = profile.get("efi_intel", "")
         kernel_cmdline[name] = profile.get("kernel_cmdline", _default_cmdline)
+        chroot_ansible_tags[name] = ",".join(profile["chroot_ansible_tags"])
+        post_install_command[name] = profile["post_install_command"]
 
     parts = [
         _bash_assoc("HOST_ROLE", role),
@@ -115,6 +119,8 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         _bash_assoc("HOST_KERNEL_CMDLINE", kernel_cmdline),
         _bash_assoc("HOST_EFI_EXTRA", efi_extra),
         _bash_assoc("HOST_EFI_INTEL", efi_intel),
+        _bash_assoc("HOST_CHROOT_ANSIBLE_TAGS", chroot_ansible_tags),
+        _bash_assoc("HOST_POST_INSTALL_COMMAND", post_install_command),
         f'declare -gra PACSTRAP_BASE_PKGS=({" ".join(shlex.quote(p) for p in g["pacstrap_base_packages"])})',
         f'declare -gra VALID_HOSTS=({" ".join(shlex.quote(h) for h in valid_hosts(data))})',
         f'declare -gr F2FS_MNT_OPTS={shlex.quote(g["f2fs_mount_opts"])}',
