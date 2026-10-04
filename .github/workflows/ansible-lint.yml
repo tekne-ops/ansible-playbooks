@@ -22,18 +22,28 @@ jobs:
       - name: Install dependencies
         run: |
           pip install ansible ansible-lint
+          ansible-galaxy collection install -r requirements.yml -p "${RUNNER_TEMP}/collections"
 
-      - name: Install Ansible collections
+      - name: Check install profiles and autoinstall renderer
         run: |
-          if [ -f ../ansible-collections/tekne/devops/galaxy.yml ]; then
-            ansible-galaxy collection install -r requirements.yml --force
-          else
-            ansible-galaxy collection install community.general ansible.posix
-            ansible-galaxy collection install \
-              git+https://github.com/tekne-ops/ansible-collections.git#/tekne/devops \
-              --force
-          fi
+          python3 install/tests/test_profiles.py
+          python3 install/tests/test_render_autoinstall.py
 
-      - name: Run ansible-lint
+      - name: Syntax-check entrypoints
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/collections
         run: |
-          ansible-lint
+          ansible-playbook playbooks/workstation.yml --syntax-check
+          ansible-playbook playbooks/server.yml -i inventories/server/hosts.yml --syntax-check
+          ansible-playbook playbooks/main.yml --syntax-check
+          ansible-playbook playbooks/k8s.yml -i inventories/k8s/hosts.yml --syntax-check
+
+      - name: Lint entrypoints
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ runner.temp }}/collections
+          # ansible-lint syntax-check cannot pass -i. Keep real runs fatal
+          # via ansible.cfg, and let this embedded check warn when the
+          # default workstation inventory has no k8s_cluster or servers group.
+          ANSIBLE_HOST_PATTERN_MISMATCH: warning
+        run: |
+          ansible-lint playbooks/workstation.yml playbooks/server.yml playbooks/main.yml playbooks/k8s.yml

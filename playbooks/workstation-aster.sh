@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-exec sudo ansible-playbook playbooks/main.yml \
-  --tags network-host,os,gpu,pipewire,gaming,onedrive,bootstrap,nftables \
-  --ask-vault-pass
+exec sudo ansible-playbook playbooks/workstation.yml \
+    -i inventories/workstation/hosts.yml \
+    --tags network-host,os,gpu,pipewire,gaming,onedrive,bootstrap,nftables \
+    --ask-vault-pass

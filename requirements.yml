@@ -2,13 +2,10 @@
 collections:
   - name: amazon.aws
   - name: community.general
+  - name: community.docker
   - name: ansible.posix
-  # Relative to this file: works in monorepo and arch-install (/media/ansible-playbooks + /media/ansible-collections)
-  - name: tekne.devops
-    type: dir
-    source: ../ansible-collections/tekne/devops
-
-  # Standalone clone without sibling repo (CI / fresh checkout):
-  # - name: git+https://github.com/tekne-ops/ansible-collections.git#/tekne/devops
-  #   type: git
-  #   version: main
+  # Standalone checkout used by CI. The Arch chroot installer writes
+  # requirements-chroot.yml and installs the staged tekne/devops tree instead.
+  - name: https://github.com/tekne-ops/ansible-collections.git#/tekne/devops
+    type: git
+    version: main

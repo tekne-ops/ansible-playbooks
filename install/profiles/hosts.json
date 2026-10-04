@@ -168,7 +168,7 @@
       "kernel_pkg": "linux-tkg-themis",
       "mcode_packages": [],
       "chroot_ansible_tags": ["user", "network-host", "gpu"],
-      "post_install_command": "sudo ansible-playbook playbooks/main.yml --tags network-host,os,pipewire,nftables --ask-vault-pass",
+      "post_install_command": "sudo ansible-playbook playbooks/workstation.yml -i inventories/workstation/hosts.yml --tags network-host,os,pipewire,nftables --ask-vault-pass",
       "kernel_cmdline": "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2",
       "efi_extra": "",
       "efi_intel": " enable_guc=3 intel_pstate=passive",

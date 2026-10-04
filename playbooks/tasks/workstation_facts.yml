@@ -1,0 +1,17 @@
+---
+- name: Set ASTER XFCE monitors
+  ansible.builtin.set_fact:
+    bootstrap_xfce_monitors:
+      - eDP-1
+      - DP-1-1
+  when: current_hostname == 'ASTER'
+  tags: [always]
+
+- name: Set YUGEN XFCE monitors
+  ansible.builtin.set_fact:
+    bootstrap_xfce_monitors:
+      - DP-1
+      - DP-2
+      - DP-3
+  when: current_hostname == 'YUGEN'
+  tags: [always]

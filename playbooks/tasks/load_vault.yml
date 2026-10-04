@@ -1,0 +1,19 @@
+---
+- name: Load vault secrets
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir | dirname }}/vars/vault.yml"
+  no_log: true
+  tags:
+    - user
+    - os
+    - network-host
+    - haproxy
+    - bootstrap
+    - onedrive
+    - docker-host
+    - libvirt
+    - consul
+    - jenkins
+    - gerbera
+    - repotekne
+    - hermes

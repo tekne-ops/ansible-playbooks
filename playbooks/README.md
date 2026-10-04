@@ -1,5 +1,7 @@
 # Tekne Ansible
 
+Operational entrypoints are documented in the repository [README](../README.md). Use `workstation.yml` with `inventories/workstation/hosts.yml` for ASTER, YUGEN, and KVM. Use `server.yml` with `inventories/server/hosts.yml` for THEMIS. `main.yml` dispatches to those role sets after a hostname check that always runs.
+
 Ansible automation for provisioning and configuring Arch Linux workstations and servers.
 
 ## Repository Structure
@@ -65,7 +67,7 @@ After rebooting into the new system:
 cd /path/to/ansible-playbook/archlinux
 
 # Run the workstation playbook
-ansible-playbook main.yml --ask-vault-pass
+ansible-playbook playbooks/workstation.yml -i inventories/workstation/hosts.yml --ask-vault-pass
 ```
 
 ## Playbooks
@@ -89,16 +91,16 @@ Configures ASTER and YUGEN workstations with full desktop environment. Runs on `
 **Usage:**
 ```bash
 # Full run
-ansible-playbook main.yml --ask-vault-pass
+ansible-playbook playbooks/workstation.yml -i inventories/workstation/hosts.yml --ask-vault-pass
 
 # Run specific roles
-ansible-playbook main.yml --ask-vault-pass --tags "user,os"
+ansible-playbook playbooks/workstation.yml -i inventories/workstation/hosts.yml --ask-vault-pass --tags "user,os"
 
 # Dry run
-ansible-playbook main.yml --ask-vault-pass --check
+ansible-playbook playbooks/workstation.yml -i inventories/workstation/hosts.yml --ask-vault-pass --check
 
 # Verbose output
-ansible-playbook main.yml --ask-vault-pass -vv
+ansible-playbook playbooks/workstation.yml -i inventories/workstation/hosts.yml --ask-vault-pass -vv
 ```
 
 ## Roles

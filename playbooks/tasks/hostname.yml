@@ -1,0 +1,36 @@
+---
+- name: Read hostname from /etc/hostname
+  ansible.builtin.slurp:
+    src: /etc/hostname
+  register: hostname_file
+  tags: [always]
+
+- name: Set hostname fact
+  ansible.builtin.set_fact:
+    current_hostname: >-
+      {{ (hostname_file.content | b64decode).strip() | upper }}
+    current_hostname_raw: >-
+      {{ (hostname_file.content | b64decode).strip() }}
+  tags: [always]
+
+- name: Display detected hostname
+  ansible.builtin.debug:
+    msg: "Detected hostname: {{ current_hostname }}"
+  tags: [always]
+
+- name: Verify hostname is allowed for this playbook
+  ansible.builtin.assert:
+    that:
+      - current_hostname in tekne_allowed_hostnames
+    fail_msg: >-
+      Unknown host profile {{ current_hostname }}.
+      Allowed hostnames: {{ tekne_allowed_hostnames | join(', ') }}.
+    success_msg: "Hostname verified: {{ current_hostname }}"
+  tags: [always]
+
+- name: Set hostname variables for roles
+  ansible.builtin.set_fact:
+    cached_hostname: "{{ current_hostname }}"
+    cached_hostname_raw: "{{ current_hostname_raw }}"
+    hostname: "{{ current_hostname }}"
+  tags: [always]

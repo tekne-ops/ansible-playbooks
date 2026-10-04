@@ -5,6 +5,9 @@
 # Usage (from ansible-playbooks/):
 #   ansible-playbook playbooks/k8s.yml -i inventories/k8s/hosts.yml
 #
+# ansible.cfg defaults to the workstation inventory. Pass -i so this play
+# targets k8s_cluster instead of localhost.
+#
 # Requires SSH access to k8s-mstr00 and k8s-node* as devops (become/sudo).
 
 - name: Prepare Kubernetes hosts

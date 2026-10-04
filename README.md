@@ -6,7 +6,7 @@ Ansible playbooks, inventories, and installation scripts for provisioning and co
 
 - Defines **playbooks** that run on local workstations/servers or remote Kubernetes nodes
 - Holds **inventories** for prod (localhost) and k8s cluster hosts
-- Stores **encrypted secrets** in Ansible Vault (`group_vars/all/vault`)
+- Stores **encrypted secrets** in Ansible Vault (`vars/vault.yml`), loaded only by an explicit `include_vars`
 - Provides **Arch Linux installation scripts** for fresh installs from the live ISO
 - Runs **CI linting** via GitHub Actions (`ansible-lint`)
 
@@ -16,32 +16,36 @@ Roles live in `ansible-collections`; this repo wires them together and supplies 
 
 ```
 ansible-playbooks/
-├── ansible.cfg              # Single Ansible config (inventory, collections_path, callbacks)
-├── requirements.yml         # Galaxy collection dependencies
-├── group_vars/
-│   └── all/
-│       └── vault            # Encrypted secrets (passwords, TLS PEM, WiFi passphrase)
+├── ansible.cfg              # Defaults to the workstation inventory; host key checking on
+├── requirements.yml         # Galaxy collection dependencies (standalone CI)
+├── vars/
+│   └── vault.yml            # Encrypted secrets, included explicitly by the playbooks
 ├── inventories/
-│   ├── prod/hosts.yml       # Localhost inventory for workstation/server playbooks
+│   ├── workstation/hosts.yml
+│   ├── server/hosts.yml
+│   ├── prod/hosts.yml       # Legacy localhost inventory, not the default
 │   └── k8s/
-│       ├── hosts.yml        # k8s-mstr00 + k8s-node* hosts
+│       ├── hosts.yml
 │       └── group_vars/k8s_cluster.yml
 ├── install/                 # Arch live-ISO provisioning (not Ansible playbooks)
-│   ├── arch-install.sh      # Arch installer with per-host profiles
-│   ├── efi.sh               # EFI boot entry helper
-│   ├── profiles/
-│   │   └── hosts.json       # Single source for host disks, packages, kernel
-│   └── lib/
-│       └── tekne_profiles.py
+│   ├── arch-install.sh
+│   ├── render_autoinstall.py
+│   ├── autoinstall.yaml     # Interactive identity; no committed password or key
+│   ├── efi.sh
+│   ├── profiles/hosts.json
+│   └── lib/tekne_profiles.py
 ├── playbooks/
-│   ├── main.yml             # Primary host configuration playbook
-│   ├── k8s.yml              # Kubernetes node prerequisites (Debian)
-│   ├── workstation.sh       # Tag-filtered workstation run
-│   ├── server.sh            # Tag-filtered server run
-│   ├── consul.sh            # Run consul role only
-│   └── jenkins.sh           # Run jenkins role only
+│   ├── workstation.yml      # ASTER, YUGEN, KVM
+│   ├── server.yml           # THEMIS
+│   ├── main.yml             # Compatibility dispatcher
+│   ├── k8s.yml
+│   ├── workstation.sh
+│   ├── server.sh
+│   ├── consul.sh
+│   ├── jenkins.sh
+│   └── hermes.sh
 └── .github/workflows/
-    └── ansible-lint.yml     # Lint on push/PR
+    └── ansible-lint.yml
 ```
 
 ## Supported Host Profiles
@@ -53,13 +57,21 @@ ansible-playbooks/
 | **THEMIS** | Server | Triple NVMe (DOCKER+CACHE), bridge (br0), Docker services |
 | **KVM** | VM | vda BOOT/ROOT, vdb HOME |
 
-Hostname is read from `/etc/hostname` at runtime; `main.yml` asserts it matches a known profile.
+Hostname is read from `/etc/hostname` at runtime. Each entrypoint asserts the hostname on every run, including `--tags` runs.
+
+| Entrypoint | Inventory | Allowed hostnames |
+|------------|-----------|-------------------|
+| `playbooks/workstation.yml` | `inventories/workstation/hosts.yml` | ASTER, YUGEN, KVM |
+| `playbooks/server.yml` | `inventories/server/hosts.yml` | THEMIS |
+| `playbooks/main.yml` | default workstation inventory (`hosts: localhost`) | ASTER, YUGEN, KVM, THEMIS |
+
+`main.yml` is a compatibility dispatcher: ASTER, YUGEN, and KVM get the workstation roles; THEMIS gets the server roles. Prefer the explicit entrypoint.
 
 ## Playbooks
 
-### main.yml
+### workstation.yml
 
-Primary playbook for Arch Linux workstations and servers. Runs on `localhost` with `connection: local`.
+Arch Linux workstation playbook. Runs on the `workstations` group with `connection: local` and `become: true` on the play.
 
 **Role execution order:**
 
@@ -71,37 +83,57 @@ Primary playbook for Arch Linux workstations and servers. Runs on `localhost` wi
 | 4 | `tekne.devops.pipewire` | `pipewire` | PipeWire audio stack |
 | 5 | `tekne.devops.gpu` | `gpu` | NVIDIA (YUGEN) or Intel/Mesa drivers |
 | 6 | `tekne.devops.xfce4` | `xfce4` | XFCE4 desktop, LightDM, bluetooth |
-| 7 | `tekne.devops.gaming` | `gaming` | Steam, Lutris, Wine, gamemode |
-| 8 | `tekne.devops.onedrive` | `onedrive` | OneDrive client (abraunegg) |
-| 9 | `tekne.devops.bootstrap` | `bootstrap` | OneDrive sync, symlinks, XFCE config |
-| 10 | `tekne.devops.nftables` | `nftables` | Host-specific firewall rules |
-| 11 | `tekne.devops.docker` | `docker-host` | Docker engine and `dockers` network |
-| 12 | `tekne.devops.libvirt` | `libvirt` | QEMU/KVM virtualization |
-| 13 | `tekne.devops.haproxy` | `haproxy` | HAProxy TLS reverse proxy (tekne.sv) |
-| 14 | `tekne.devops.repotekne` | `repotekne` | Arch package repo container |
-| 15 | `tekne.devops.gerbera` | `gerbera` | UPnP/DLNA media server |
-| 16 | `tekne.devops.consul` | `consul` | HashiCorp Consul service mesh |
-| 17 | `tekne.devops.jenkins` | `jenkins` | Jenkins CI container |
+| 7 | `tekne.devops.kde` | `kde` | KDE Plasma desktop |
+| 8 | `tekne.devops.gaming` | `gaming` | Steam, Lutris, Wine, gamemode |
+| 9 | `tekne.devops.onedrive` | `onedrive` | OneDrive client (abraunegg) |
+| 10 | `tekne.devops.bootstrap` | `bootstrap` | OneDrive sync, symlinks, XFCE config |
+| 11 | `tekne.devops.nftables` | `nftables` | Host-specific firewall rules |
+| 12 | `tekne.devops.docker` | `docker-host` | Docker engine and `dockers` network (YUGEN) |
+| 13 | `tekne.devops.libvirt` | `libvirt` | QEMU/KVM virtualization (YUGEN) |
+| 14 | `tekne.devops.hermes` | `hermes` | AWS helper; also present on the server entrypoint |
 
 The bootstrap role pauses for interactive OneDrive authentication on first run.
 
+### server.yml
+
+THEMIS server playbook. Runs on the `servers` group with `connection: local`.
+
+| # | Role | Tag |
+|---|------|-----|
+| 1 | `tekne.devops.user` | `user` |
+| 2 | `tekne.devops.network` | `network-host` |
+| 3 | `tekne.devops.os` | `os` |
+| 4 | `tekne.devops.gpu` | `gpu` |
+| 5 | `tekne.devops.nftables` | `nftables` |
+| 6 | `tekne.devops.docker` | `docker-host` |
+| 7 | `tekne.devops.libvirt` | `libvirt` |
+| 8 | `tekne.devops.haproxy` | `haproxy` |
+| 9 | `tekne.devops.repotekne` | `repotekne` |
+| 10 | `tekne.devops.gerbera` | `gerbera` |
+| 11 | `tekne.devops.consul` | `consul` |
+| 12 | `tekne.devops.jenkins` | `jenkins` |
+| 13 | `tekne.devops.hermes` | `hermes` |
+
 ```bash
-# From repo root (ansible.cfg sets inventory and collections_path)
+# From repo root. ansible.cfg selects the workstation inventory and enables host key checking.
+# Become is set on the play, not in ansible.cfg.
 
-# Full run
-ansible-playbook playbooks/main.yml --ask-vault-pass
-
-# Workstation subset
+# Workstation
+ansible-playbook playbooks/workstation.yml -i inventories/workstation/hosts.yml --ask-vault-pass
 ./playbooks/workstation.sh
 
-# Server subset (Docker services, libvirt, HAProxy, etc.)
+# Server (THEMIS)
+ansible-playbook playbooks/server.yml -i inventories/server/hosts.yml --ask-vault-pass
 ./playbooks/server.sh
 
+# Compatibility dispatcher (workstation roles, or server roles on THEMIS)
+ansible-playbook playbooks/main.yml --ask-vault-pass
+
 # Specific roles
-ansible-playbook playbooks/main.yml --ask-vault-pass --tags "user,os,gpu"
+ansible-playbook playbooks/workstation.yml -i inventories/workstation/hosts.yml --ask-vault-pass --tags "user,os,gpu"
 
 # Dry run
-ansible-playbook playbooks/main.yml --ask-vault-pass --check
+ansible-playbook playbooks/workstation.yml -i inventories/workstation/hosts.yml --ask-vault-pass --check
 ```
 
 ### k8s.yml
@@ -127,29 +159,27 @@ Per-host profiles with dry-run, resume-from-task, and vault integration. Host pr
 ./install/arch-install.sh --vault-password-file ~/.vault_pass THEMIS
 ```
 
-After reboot, run `main.yml` from the installed system.
+After reboot, run `playbooks/workstation.sh` (ASTER, YUGEN), `playbooks/server.sh` (THEMIS), or the KVM `workstation.yml` command from `install/profiles/hosts.json`.
+
+`install/autoinstall.yaml` leaves identity interactive, so the committed file has no password hash or SSH key. `install/render_autoinstall.py` still renders a template that contains `REPLACE_WITH_*` tokens and exits without writing a file if any placeholder is unresolved.
 
 ## Collection Dependencies
 
 Install collections before running playbooks:
 
 ```bash
-ansible-galaxy collection install -r requirements.yml
+ansible-galaxy collection install -r requirements.yml -p "${HOME}/.ansible/collections"
 ```
 
-`requirements.yml` pulls `community.general`, `ansible.posix`, and the local `tekne.devops` collection. For local development, `ansible.cfg` sets `collections_path = ../ansible-collections` (resolves `tekne/devops/`). On the live ISO, the collection is mounted at `/media/ansible-collections/tekne/devops`.
+Pass that path with `ANSIBLE_COLLECTIONS_PATH` when it should take precedence over `collections_path` in `ansible.cfg`. CI does this with a temporary directory.
 
-For CI or fresh clones without a local collection tree, uncomment the Git source in `requirements.yml`:
+`requirements.yml` installs `amazon.aws`, `community.general`, `community.docker`, `ansible.posix`, and `tekne.devops` from Git. That file is what CI runs, so a standalone checkout does not need a sibling `ansible-collections` directory.
 
-```yaml
-- name: git+https://github.com/tekne-ops/ansible-collections.git#/tekne/devops
-  type: git
-  version: main
-```
+For local development, `ansible.cfg` sets `collections_path = ../ansible-collections`. On the live ISO, `install/arch-install.sh` stages that tree and installs it from a generated `requirements-chroot.yml`.
 
 ## Vault
 
-Secrets are stored in `group_vars/all/vault` (Ansible Vault encrypted).
+Secrets are stored in `vars/vault.yml` (Ansible Vault encrypted). Playbooks load that file with `include_vars`. It is not under `group_vars`, so `ansible-inventory --list` does not decrypt it.
 
 **Required variables:**
 
@@ -161,8 +191,8 @@ Secrets are stored in `group_vars/all/vault` (Ansible Vault encrypted).
 | `haproxy_ssl_pem` | Full PEM (cert + key) for tekne.sv TLS |
 
 ```bash
-ansible-vault edit group_vars/all/vault
-ansible-vault view group_vars/all/vault
+ansible-vault edit vars/vault.yml
+ansible-vault view vars/vault.yml
 ```
 
 ## Requirements
@@ -170,7 +200,7 @@ ansible-vault view group_vars/all/vault
 - Arch Linux (workstation/server playbooks) or Debian 13 (k8s playbook)
 - Python 3
 - Ansible Core 2.14+
-- Collections: `community.general`, `ansible.posix`, `tekne.devops`
+- Collections: `amazon.aws`, `community.general`, `community.docker`, `ansible.posix`, `tekne.devops`
 
 ```bash
 pacman -S ansible-core ansible

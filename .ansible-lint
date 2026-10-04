@@ -1,0 +1,53 @@
+---
+offline: true
+
+exclude_paths:
+  - .ansible/
+  - .cache/
+  - vars/vault.yml
+  - install/autoinstall.yaml
+
+skip_list:
+  - meta-incorrect
+  - schema[meta]
+  - var-naming[no-role-prefix]
+  - no-changed-when
+  - command-instead-of-module
+  - risky-shell-pipe
+  - risky-file-permissions
+  - name[casing]
+  - name[play]
+
+mock_modules:
+  - ansible.builtin.getent
+  - community.general.pacman
+  - community.general.dpkg_selections
+
+mock_roles:
+  - tekne.devops.bootstrap
+  - tekne.devops.consul
+  - tekne.devops.docker
+  - tekne.devops.gaming
+  - tekne.devops.gerbera
+  - tekne.devops.gpu
+  - tekne.devops.haproxy
+  - tekne.devops.hermes
+  - tekne.devops.jenkins
+  - tekne.devops.k8s
+  - tekne.devops.kde
+  - tekne.devops.libvirt
+  - tekne.devops.nftables
+  - tekne.devops.onedrive
+  - tekne.devops.os
+  - tekne.devops.pipewire
+  - tekne.devops.repotekne
+  - tekne.devops.user
+  - tekne.devops.xfce4
+  - tekne.devops.network
+
+write_list:
+  - none
+
+kinds:
+  - playbook: playbooks/{main,workstation,server,k8s}.yml
+  - tasks: playbooks/tasks/*.yml

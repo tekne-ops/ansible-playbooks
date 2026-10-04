@@ -1,601 +1,95 @@
-# Xubuntu autoinstall for ASTER (24.04+ Xubuntu ISO).
-# Place this file on the install media as autoinstall.yaml.
-#
-# Before a real install, replace the Wi-Fi password below with vault
-# os_wifi_passphrase. Replace identity.password with the vault user_password
-# hash (ansible-vault view group_vars/all/vault). Late commands copy that
-# hash to root and devops, and copy the Wi-Fi password into iwd.
-#
-# This file follows install/arch-install.sh + install/profiles/hosts.json
-# for host ASTER only (chroot tags: user, network-host, xfce4, gpu).
-# It does not run the post-reboot workstation playbook.
----
+#cloud-config
 autoinstall:
   version: 1
-  locale: en_US.UTF-8
-  timezone: America/El_Salvador
-  keyboard:
-    layout: us
-    variant: ""
-    toggle: null
+
+  # No account details were supplied, so collect them during installation.
+  interactive-sections:
+    - identity
+
+  # Standard (full) Xubuntu installation from the Xubuntu full ISO.
   source:
-    id: xubuntu-desktop-minimal
+    id: xubuntu-desktop
     search_drivers: true
-  kernel:
-    flavor: generic
-  kernel-crash-dumps:
-    enabled: false
-  oem:
-    install: false
+
+  # Install proprietary/third-party drivers and restricted media codecs.
   drivers:
     install: true
-  updates: security
-  shutdown: reboot
-  apt:
-    geoip: false
-    fallback: abort
-    mirror-selection:
-      primary:
-        - uri: http://us.archive.ubuntu.com/ubuntu
-          arches: [amd64]
-  # early-commands run before the network section is applied; connect
-  # Ethernet or Wi-Fi in the live session before starting the install.
-  early-commands:
-    - |
-      i=0
-      until getent hosts us.archive.ubuntu.com >/dev/null; do
-        i=$((i + 1))
-        if [ "$i" -ge 45 ]; then
-          echo "ASTER early: no DNS/network after 90s; connect network in the live session" >&2
-          exit 1
-        fi
-        sleep 2
-      done
-    - |
-      set -eu
-      missing=""
-      command -v mkfs.f2fs >/dev/null || missing="$missing f2fs-tools"
-      command -v nvme >/dev/null || missing="$missing nvme-cli"
-      if [ -n "$missing" ]; then
-        apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y $missing
-      fi
-      modprobe f2fs || true
-    - |
-      for ctrl in /dev/nvme0 /dev/nvme1; do
-        if ! nvme format "$ctrl" --namespace-id=1 --ses=1 --reset --force; then
-          echo "ASTER early: secure erase of $ctrl failed; curtin will still wipe it" >&2
-        fi
-      done
-  network:
-    version: 2
-    ethernets:
-      ether:
-        match:
-          name: "en*"
-        dhcp4: true
-        optional: true
-    wifis:
-      wifi:
-        match:
-          name: "wl*"
-        dhcp4: true
-        optional: true
-        access-points:
-          esher:
-            password: "CHANGE_ME"
+  codecs:
+    install: true
+
   storage:
-    version: 2
-    swap:
-      size: 0
-    grub:
-      reorder_uefi: false
-      update_nvram: true
     config:
+      # WARNING: both disks are deliberately repartitioned and erased.
       - type: disk
-        id: disk0
+        id: disk-nvme0n1
+        path: /dev/nvme0n1
         ptable: gpt
-        match:
-          path: /dev/nvme0n1
-        wipe: superblock
-        grub_device: true
+        wipe: superblock-recursive
+        preserve: false
+
       - type: partition
-        id: disk0-esp
-        device: disk0
+        id: partition-boot
+        device: disk-nvme0n1
         number: 1
-        size: 1024M
-        flag: boot
+        size: 1%
         partition_name: BOOT
+        flag: boot
+        grub_device: true
         wipe: superblock
+        preserve: false
+
       - type: partition
-        id: disk0-boot
-        device: disk0
+        id: partition-root
+        device: disk-nvme0n1
         number: 2
-        size: 2G
-        partition_name: boot
-        wipe: superblock
-      - type: partition
-        id: disk0-root
-        device: disk0
-        number: 3
         size: -1
         partition_name: ROOT
         wipe: superblock
+        preserve: false
+
       - type: disk
-        id: disk1
+        id: disk-nvme1n1
+        path: /dev/nvme1n1
         ptable: gpt
-        match:
-          path: /dev/nvme1n1
-        wipe: superblock
-        grub_device: false
+        wipe: superblock-recursive
+        preserve: false
+
       - type: partition
-        id: disk1-home
-        device: disk1
+        id: partition-data
+        device: disk-nvme1n1
         number: 1
-        offset: 1%
-        size: -1
-        partition_name: HOME
+        size: 100%
+        partition_name: DATA
         wipe: superblock
+        preserve: false
+
       - type: format
-        id: disk0-esp-fs
-        volume: disk0-esp
+        id: format-boot
+        volume: partition-boot
         fstype: fat32
         label: BOOT
+        preserve: false
+
       - type: format
-        id: disk0-boot-fs
-        volume: disk0-boot
+        id: format-root
+        volume: partition-root
         fstype: ext4
-        label: boot
-      - type: format
-        id: disk0-root-fs
-        volume: disk0-root
-        fstype: f2fs
         label: ROOT
-        extra_options: ["-i", "-O", "extra_attr,inode_checksum,sb_checksum,compression"]
+        preserve: false
+
       - type: format
-        id: disk1-home-fs
-        volume: disk1-home
-        fstype: f2fs
-        label: HOME
-        extra_options: ["-i", "-O", "extra_attr,inode_checksum,sb_checksum,compression"]
+        id: format-data
+        volume: partition-data
+        fstype: ext4
+        label: DATA
+        preserve: false
+
       - type: mount
-        id: disk0-root-mount
-        device: disk0-root-fs
+        id: mount-root
+        device: format-root
         path: /
-        options: "compress_algorithm=zstd:6,compress_chksum,atgc,gc_merge,lazytime"
-        passno: 0
+
       - type: mount
-        id: disk0-boot-mount
-        device: disk0-boot-fs
-        path: /boot
-        options: "noatime"
-        passno: 1
-      - type: mount
-        id: disk0-esp-mount
-        device: disk0-esp-fs
+        id: mount-boot
+        device: format-boot
         path: /boot/efi
-        options: "defaults"
-        passno: 0
-      - type: mount
-        id: disk1-home-mount
-        device: disk1-home-fs
-        path: /home
-        options: "compress_algorithm=zstd:6,compress_chksum,atgc,gc_merge,lazytime"
-        passno: 0
-  identity:
-    realname: dvaliente
-    username: dvaliente
-    hostname: ASTER
-    # Placeholder hash of the text REPLACE_WITH_VAULT_user_password.
-    # Replace this whole value with the vault user_password hash.
-    password: "$6$uKteNYhs4pF2vIBO$AKWeKpx4p4iVhLaTT/14byMwCBuCuATSk495gnvkwGhM/bs97G7f4zeF.qLrlHhuy0CFjdRFIi.ThYvr3qekG1"
-    groups:
-      override: [adm, sudo, users, netdev, video, audio, plugdev, cdrom, dip]
-  ssh:
-    install-server: true
-    allow-pw: true
-    authorized-keys:
-      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCnLP7QGTEj9VRAJyls0JnkDeanaQuDk3o//hPR17wREgrNDSk1g326I+hwS+nElV4z1g9s+EyyRfBMh2jp8wMoFMwoqhJhHLc77NTb6eaxHji/CJuwMM5nRTYPEUIm0iyusT37kh04i4fS7sWFJNmR7eJqHckfocsXRSra4lq/MIDTVtardZDAK9mrZZSIm9xPqNpSzv4O0bBgrjL7hwLxmK6CpggSWrLqXRVykAe0eDj52uFSl74wF4YX6nTfffvqy7xnJwnzQg29RlIO8xcQeVbpALoxhWWMmhhpntHVSmIF3+a3/wmlm9eHWIUq2jIvEnInu430oo3+Zr0gsPULdw14SkTKo8wNelNW6HFxqlVSAJ0uk+aajU3TJwse+3jJCFlg80ib5260rPPf6mv9p14jp+kcWRCpeRK58oHBeix6qgczzjRo292wQvRTWpp2dlfS9vjqcDuYAzH6HZW3kxo4uHE38JiO8BsF57TrAqAZbaZkXZVp+fg30Z6DjnGAnjbuckXX7iP7O86hGwRQ72aZn/4ctmnJjQmAdOC6REKuAAs42eOim2RuN5hBkEdzzB7peVHUfEgA36dGfIu/aGVEt3ZO94+WItVRIW8tBCCgyMi9wFd7YXRfLP8EfvSGcJgs8wF/5I8Nw9yI7HX4i48rabBcdjIWB7xREzfr2w== fierce_brake@yugen.tekne.sv"
-  packages:
-    - f2fs-tools
-    - intel-microcode
-    - linux-firmware
-    - firmware-sof-signed
-    - brightnessctl
-    - thermald
-    - tlp
-    - tlp-rdw
-    - tlpui
-    - bolt
-    - ethtool
-    - iwd
-    - wpasupplicant
-    - wireless-regdb
-    - acpi
-    - acpid
-    - efibootmgr
-    - nvme-cli
-    - ansible
-    - python3-pip
-    - pipx
-    - python3-passlib
-    - vim
-    - bash-completion
-    - plocate
-    - rsync
-    - git
-    - wget
-    - curl
-    - iptables
-    - less
-    - usb-modeswitch
-    - gnupg
-    - zip
-    - unzip
-    - p7zip-full
-    - jq
-    - make
-    - pkg-config
-    - netcat-openbsd
-    - irqbalance
-    - shellcheck
-    - bats
-    - linux-tools-common
-    - linux-tools-generic
-    - fakeroot
-    - tcpdump
-    - parted
-    - xfsprogs
-    - fwupd
-    - pipewire
-    - pipewire-alsa
-    - pipewire-jack
-    - pipewire-pulse
-    - wireplumber
-    - libspa-0.2-bluetooth
-    - alsa-utils
-    - wmctrl
-    - man-db
-    - udisks2
-    - restic
-    - fonts-noto-core
-    - fonts-noto-color-emoji
-    - fonts-dejavu
-    - fonts-liberation
-    - screen
-    - whois
-    - fuse3
-    - mdadm
-    - dbus
-    - cron
-    - bind9-dnsutils
-    - gsmartcontrol
-    - schedtool
-    - command-not-found
-    - xfce4
-    - xfce4-goodies
-    - xorg
-    - gnome-keyring
-    - seahorse
-    - xdg-desktop-portal
-    - xdg-desktop-portal-gtk
-    - file-roller
-    - gvfs
-    - gvfs-backends
-    - bluez
-    - blueman
-    - virt-manager
-    - vlc
-    - pavucontrol
-    - lightdm
-    - slick-greeter
-    - lightdm-gtk-greeter
-    - nvidia-prime
-    - mesa-utils
-    - mesa-vulkan-drivers
-    - intel-media-va-driver
-    - vainfo
-    - libgl1-mesa-dri
-  late-commands:
-    - |
-      cat > /target/root/aster-late.sh << 'EOS'
-      #!/bin/bash
-      set -euo pipefail
-
-      export DEBIAN_FRONTEND=noninteractive
-      apt-get purge -y light-locker || true
-
-      python3 - << 'PY'
-      import pathlib
-      import re
-
-      netplan_dir = pathlib.Path("/etc/netplan")
-      text = "\n".join(p.read_text() for p in sorted(netplan_dir.glob("*.yaml")))
-      match = re.search(r'(?m)^\s*password:\s*"([^"]*)"', text)
-      if not match:
-          match = re.search(r"(?m)^\s*password:\s*'([^']*)'", text)
-      if not match:
-          match = re.search(r"(?m)^\s*password:\s*(\S+)\s*$", text)
-      if not match:
-          raise SystemExit("esher Wi-Fi password not found in /etc/netplan")
-      password = match.group(1)
-      iwd_dir = pathlib.Path("/var/lib/iwd")
-      iwd_dir.mkdir(parents=True, exist_ok=True)
-      psk = iwd_dir / "esher.psk"
-      psk.write_text(
-          "[Security]\nPassphrase=%s\n\n[Settings]\nAutoConnect=true\n" % password
-      )
-      psk.chmod(0o600)
-      for path in netplan_dir.glob("*.yaml"):
-          path.unlink()
-      PY
-
-      install -d -m 0755 /etc/iwd
-      cat > /etc/iwd/main.conf << 'EOF'
-      [General]
-      EnableNetworkConfiguration=false
-      EOF
-
-      install -d -m 0755 /etc/systemd/network
-      cat > /etc/systemd/network/80-wifi-station.network << 'EOF'
-      [Match]
-      Type=wlan
-      WLANInterfaceType=station
-      SSID=*
-      Host=ASTER
-
-      [Link]
-      RequiredForOnline=routable
-
-      [Network]
-      DHCP=ipv4
-      IPv6AcceptRA=no
-      DNSDefaultRoute=yes
-      DNSOverTLS=yes
-
-      [DHCPv4]
-      UseDNS=yes
-      UseHostname=no
-      UseDomains=no
-      RouteMetric=600
-      EOF
-
-      cat > /etc/systemd/network/89-ethernet.network << 'EOF'
-      [Match]
-      Kind=!*
-      Type=ether
-      Host=ASTER
-
-      [Link]
-      RequiredForOnline=routable
-
-      [Network]
-      DHCP=ipv4
-      IPv6AcceptRA=no
-      DNSDefaultRoute=yes
-      DNSOverTLS=yes
-
-      [DHCPv4]
-      UseDNS=yes
-      UseHostname=no
-      UseDomains=no
-      RouteMetric=100
-      EOF
-
-      install -d -m 0755 /etc/systemd/system/systemd-networkd-wait-online.service.d
-      cat > /etc/systemd/system/systemd-networkd-wait-online.service.d/any.conf << 'EOF'
-      [Service]
-      ExecStart=
-      ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any --timeout=30
-      EOF
-
-      install -d -m 0755 /etc/systemd/resolved.conf.d
-      cat > /etc/systemd/resolved.conf.d/95-dns.conf << 'EOF'
-      # ASTER uses DHCP nameservers and still requires DNS-over-TLS.
-      [Resolve]
-      Domains=tekne.sv
-      FallbackDNS=
-      DNSOverTLS=yes
-      DNSSEC=no
-      Cache=yes
-      EOF
-
-      ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-
-      install -d -m 0755 /etc/cloud/cloud.cfg.d
-      printf 'network: {config: disabled}\n' > /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
-
-      cat > /etc/tlp.conf << 'EOF'
-      # TLP — ASTER: max plugged-in gaming performance, efficient on battery
-
-      TLP_ENABLE=1
-      TLP_DEFAULT_MODE=AC
-      TLP_PERSISTENT_DEFAULT=0
-
-      CPU_SCALING_GOVERNOR_ON_AC=performance
-      CPU_SCALING_GOVERNOR_ON_BAT=powersave
-      CPU_ENERGY_PERF_POLICY_ON_AC=performance
-      CPU_ENERGY_PERF_POLICY_ON_BAT=power
-      CPU_BOOST_ON_AC=1
-      CPU_BOOST_ON_BAT=0
-      CPU_HWP_DYN_BOOST_ON_AC=1
-      CPU_HWP_DYN_BOOST_ON_BAT=0
-      CPU_MIN_PERF_ON_AC=0
-      CPU_MAX_PERF_ON_AC=100
-      CPU_MIN_PERF_ON_BAT=0
-      CPU_MAX_PERF_ON_BAT=30
-
-      PLATFORM_PROFILE_ON_AC=performance
-      PLATFORM_PROFILE_ON_BAT=low-power
-
-      WIFI_PWR_ON_AC=off
-      WIFI_PWR_ON_BAT=on
-      WOL_DISABLE=Y
-
-      USB_AUTOSUSPEND=1
-      USB_EXCLUDE_BTUSB=0
-      USB_EXCLUDE_PHONE=1
-      USB_EXCLUDE_PRINTER=1
-
-      RUNTIME_PM_ON_AC=on
-      RUNTIME_PM_ON_BAT=auto
-      RUNTIME_PM_DRIVER_DENYLIST="nouveau nvidia nvidia_drm nvidia_modeset nvidia_uvm"
-      PCIE_ASPM_ON_AC=performance
-      PCIE_ASPM_ON_BAT=powersupersave
-
-      DISK_DEVICES="nvme0n1 nvme1n1"
-      DISK_APM_LEVEL_ON_AC="254 254"
-      DISK_APM_LEVEL_ON_BAT="128 128"
-      DISK_IOSCHED="none none"
-
-      AHCI_RUNTIME_PM_ON_AC=on
-      AHCI_RUNTIME_PM_ON_BAT=auto
-
-      SOUND_POWER_SAVE_ON_AC=0
-      SOUND_POWER_SAVE_ON_BAT=1
-      EOF
-
-      groupadd -f devs
-      groupadd -f rfkill
-      groupadd -f games
-      getent group input >/dev/null || groupadd input
-      usermod -g users dvaliente
-      usermod -aG devs,rfkill,games,input,sudo,netdev,video,audio,plugdev dvaliente
-      chown -R dvaliente:users /home/dvaliente
-
-      if ! id devops >/dev/null 2>&1; then
-        useradd -m -s /bin/bash -g users -G devs,rfkill,games,input,sudo,netdev,video,audio,plugdev devops
-      fi
-      hash=$(awk -F: '$1=="dvaliente" {print $2}' /etc/shadow)
-      printf 'root:%s\n' "$hash" | chpasswd -e
-      printf 'devops:%s\n' "$hash" | chpasswd -e
-
-      install -d -m 0755 /etc/sudoers.d
-      cat > /etc/sudoers.d/sudo_dvaliente << 'EOF'
-      dvaliente ALL=(ALL:ALL) ALL
-      dvaliente ALL=(ALL:ALL) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/docker, /usr/bin/fwupdmgr, /usr/local/bin/kubectl
-      EOF
-      cat > /etc/sudoers.d/sudo_devops << 'EOF'
-      devops ALL=(ALL:ALL) ALL
-      devops ALL=(ALL:ALL) NOPASSWD: ALL
-      EOF
-      chmod 0440 /etc/sudoers.d/sudo_dvaliente /etc/sudoers.d/sudo_devops
-      visudo -cf /etc/sudoers.d/sudo_dvaliente
-      visudo -cf /etc/sudoers.d/sudo_devops
-
-      install -d -m 0700 -o devops -g users /home/devops/.ssh
-      cat > /home/devops/.ssh/authorized_keys << 'EOF'
-      ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCorr9oh2s4scmIpotsGaH0D4VpY7kjCknrU+cefo1zbHt5LkiyK1wc/v/n/ct5Fk1Oeb8LIMtiqH5mvl21lVGAVx80ui8+aYPit1K40fbk2nFu6pqlCWGWr+QrFu8cU7S/DZCWJd2MMGPJEah31Sd2KQVC299/lTTAY1BnlFo5nbmmxP2TUnl8BixiH7vweQtKCt7FlmA1GGwTbR6zond0Pan0n/AiVaeaDQF9x/MAUS1MCEWRew6kI8YsF7RLk/8LrxfeBU4BqeiQnUHd+fy4fise+9gk9sC2LGacR4ZAQZ3M6kKc+chZdrwCiWH4wIYUpxTFZp09TMdm61xoNx95
-      EOF
-      chown devops:users /home/devops/.ssh/authorized_keys
-      chmod 0600 /home/devops/.ssh/authorized_keys
-
-      for user in dvaliente devops; do
-        home=$(getent passwd "$user" | cut -d: -f6)
-        group=$(id -gn "$user")
-        install -d -m 0755 -o "$user" -g "$group" \
-          "$home/.config/systemd/user" \
-          "$home/.config/autostart" \
-          "$home/.config/remmina" \
-          "$home/.vim/autoload" \
-          "$home/.vim/bundle" \
-          "$home/.vim/colors" \
-          "$home/bin"
-        install -d -m 0700 -o "$user" -g "$group" "$home/.gnupg" "$home/.ssh"
-        cat > "$home/.bashrc" << 'EOF'
-      [[ $- == *i* && -f /usr/share/blesh/ble.sh ]] && source /usr/share/blesh/ble.sh --noattach
-
-      export WINEFSYNC=1
-      export WINEESYNC=1
-
-      shopt -s checkwinsize
-
-      [[ -f /usr/share/doc/pkgfile/command-not-found.bash ]] && source /usr/share/doc/pkgfile/command-not-found.bash
-
-      LS_COLORS="di=1;35:ex=4;31:*.mp3=1;32;41:rs=0:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36"
-
-      export LS_COLORS
-
-      alias ls='ls --color=auto'
-
-      bld_ini="\[\e[1m\]"
-      blk_ini="\[$(tput blink)\]"
-      blk_end="\[$(tput sgr0)\]"
-      bld_end="\[\e[m\]"
-      clr_ini="\[$(tput setaf 202)\]"
-      clr_end="\[$(tput sgr0)\]"
-      __prompt="[\W] #$blk_ini>$blk_end"
-
-      export PS1="$bld_ini$clr_ini$__prompt$clr_end$bld_end "
-
-      [[ ${BLE_VERSION-} ]] && ble-attach
-      EOF
-        cat > "$home/.vimrc" << 'EOF'
-      syntax on
-      filetype off
-
-      filetype plugin indent on
-      set showmode number nohlsearch
-      set tabstop=4
-      set softtabstop=0 noexpandtab
-      set shiftwidth=4
-      set tabstop=8 softtabstop=0 expandtab shiftwidth=4 smarttab
-
-      nmap <C-N> :set invnumber<CR>
-      set background=dark
-      autocmd FileType yaml setlocal ai et ts=2 sw=2 cuc cul
-      autocmd FileType python setlocal ai et ts=4 sw=4 cuc cul
-      EOF
-        chown "$user:$group" "$home/.bashrc" "$home/.vimrc"
-        chmod 0644 "$home/.bashrc" "$home/.vimrc"
-      done
-
-      if grep -qE '^#?greeter-session=' /etc/lightdm/lightdm.conf; then
-        sed -i 's/^#\?greeter-session=.*/greeter-session=lightdm-slick-greeter/' /etc/lightdm/lightdm.conf
-      else
-        printf '\n[Seat:*]\ngreeter-session=lightdm-slick-greeter\n' >> /etc/lightdm/lightdm.conf
-      fi
-
-      rm -rf /tmp/xfce-backgrounds
-      git clone --depth 1 https://github.com/tekne-ops/backgrounds /tmp/xfce-backgrounds
-      install -d -m 0775 /usr/share/backgrounds/xfce
-      find /usr/share/backgrounds/xfce -mindepth 1 -delete
-      cp -a /tmp/xfce-backgrounds/* /usr/share/backgrounds/xfce/
-      rm -rf /tmp/xfce-backgrounds
-      cp /usr/share/backgrounds/xfce/slick-greeter.conf /etc/lightdm/slick-greeter.conf
-      sed -i 's|^background=.*|background=/usr/share/backgrounds/xfce/dog-animal-picture-uhdpaper.com-4K-4.3358.jpg|' /etc/lightdm/slick-greeter.conf
-
-      grep -qF 'ASTER.tekne.sv' /etc/hosts || printf '127.0.0.1 localhost ASTER.tekne.sv ASTER\n' >> /etc/hosts
-      ln -sfn /usr/bin/vim /usr/bin/vi
-      install -d -m 0755 /var/cache/docker/build /var/cache/staging /var/cache/build
-
-      cat > /etc/modules-load.d/aster.conf << 'EOF'
-      mt7925e
-      btusb
-      EOF
-      for mod in f2fs mt7925e btusb; do
-        grep -qxF "$mod" /etc/initramfs-tools/modules || printf '%s\n' "$mod" >> /etc/initramfs-tools/modules
-      done
-      sed -i 's|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT="kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog mitigations=off quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2 mt7925e.disable_aspm=1"|' /etc/default/grub
-
-      systemctl enable \
-        systemd-networkd.service \
-        systemd-resolved.service \
-        systemd-networkd-wait-online.service \
-        systemd-timesyncd.service \
-        acpid.service \
-        iwd.service \
-        bluetooth.service \
-        thermald.service \
-        tlp.service \
-        bolt.service \
-        lightdm.service
-      systemctl disable NetworkManager.service 2>/dev/null || true
-      systemctl disable wpa_supplicant.service 2>/dev/null || true
-
-      update-initramfs -u
-      update-grub
-      EOS
-      chmod 0700 /target/root/aster-late.sh
-      curtin in-target -- bash /root/aster-late.sh
-      rm -f /target/root/aster-late.sh

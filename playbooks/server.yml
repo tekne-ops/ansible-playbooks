@@ -1,0 +1,24 @@
+---
+# Server entrypoint for THEMIS.
+#
+#   ansible-playbook playbooks/server.yml -i inventories/server/hosts.yml --ask-vault-pass
+
+- name: Configure server
+  hosts: servers
+  connection: local
+  become: true
+
+  vars:
+    tekne_allowed_hostnames:
+      - THEMIS
+
+  pre_tasks:
+    - name: Assert the server host profile
+      ansible.builtin.import_tasks: tasks/hostname.yml
+
+    - name: Load encrypted vault variables
+      ansible.builtin.import_tasks: tasks/load_vault.yml
+
+  tasks:
+    - name: Apply server roles
+      ansible.builtin.import_tasks: tasks/server_roles.yml
