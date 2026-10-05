@@ -85,7 +85,7 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
 
     _default_cmdline = (
         "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog "
-        "quiet loglevel=2 systemd.show_status=false rd.udev.log_level=2"
+        "quiet splash vt.global_cursor_default=0 loglevel=2 systemd.show_status=false rd.udev.log_level=2"
     )
 
     for name, profile in hosts.items():

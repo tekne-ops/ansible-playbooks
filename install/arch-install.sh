@@ -416,6 +416,37 @@ chroot_umount_efivars() {
     fi
 }
 
+# Keep the firmware manufacturer logo (ACPI BGRT) on the screen for boot and for
+# poweroff/reboot. quiet alone preserves the logo only until the first console
+# switch; shutdown opens the text console unless Plymouth redraws that logo.
+configure_plymouth_splash() {
+    local mnt="$1"
+
+    if ((DRY_RUN)); then
+        log DRY-RUN "set plymouth theme bgrt in chroot"
+        log DRY-RUN "add plymouth to mkinitcpio HOOKS before filesystems"
+        return 0
+    fi
+
+    chroot_bash "$mnt" '
+        set -euo pipefail
+        hooks=$(grep "^HOOKS=" /etc/mkinitcpio.conf || true)
+        case "$hooks" in
+            *plymouth*) ;;
+            *filesystems*)
+                sed -i "s/[[:space:]]filesystems/ plymouth filesystems/" /etc/mkinitcpio.conf
+                ;;
+            *kms*)
+                sed -i "s/[[:space:]]kms/ kms plymouth/" /etc/mkinitcpio.conf
+                ;;
+            *)
+                sed -i "s/^HOOKS=(/HOOKS=(plymouth /" /etc/mkinitcpio.conf
+                ;;
+        esac
+        plymouth-set-default-theme bgrt
+    '
+}
+
 # Regenerate UKI + EFI boot entry. Must run after Ansible: pacman installs in chroot
 # (e.g. xfce4 on ASTER) trigger mkinitcpio hooks and leave the UKI/ESP out of sync
 # if boot was configured earlier in the pipeline.
@@ -441,6 +472,8 @@ configure_uki_boot() {
             chroot_bash "$mnt" "grep -q 'MODULES=(mt7925e btusb)' /etc/mkinitcpio.conf || echo 'MODULES=(mt7925e btusb)' >> /etc/mkinitcpio.conf"
         fi
     fi
+
+    configure_plymouth_splash "$mnt"
 
     if ((DRY_RUN)); then
         log DRY-RUN "mkdir -p $mnt/etc/cmdline.d $mnt/boot/EFI/Linux"
