@@ -43,6 +43,13 @@ class InstallProfilesTest(unittest.TestCase):
         output = shell_init(self.data)
         self.assertIn("HOST_CHROOT_ANSIBLE_TAGS", output)
         self.assertIn("HOST_POST_INSTALL_COMMAND", output)
+        self.assertIn("HOST_DISK1_START_MIB", output)
+        self.assertIn("[ASTER]=1", output)
+        self.assertIn("HOST_ROOT_FSTYPE", output)
+        self.assertIn("HOST_DISK1_FSTYPE", output)
+        self.assertIn("[ASTER]=ext4", output)
+        self.assertIn("[ASTER]=xfs", output)
+        self.assertIn("[THEMIS]=f2fs", output)
 
 
 if __name__ == "__main__":

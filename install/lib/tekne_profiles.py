@@ -69,6 +69,9 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
     disk2: dict[str, str] = {}
     disk2_layout: dict[str, str] = {}
     disk2_mount: dict[str, str] = {}
+    disk1_start_mib: dict[str, str] = {}
+    root_fstype: dict[str, str] = {}
+    disk1_fstype: dict[str, str] = {}
     disk2_start_mib: dict[str, str] = {}
     storage: dict[str, str] = {}
     layout: dict[str, str] = {}
@@ -89,6 +92,9 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         role[name] = profile["role"]
         disk0[name] = profile["disk0"]
         disk1[name] = profile["disk1"]
+        disk1_start_mib[name] = str(profile.get("disk1_start_mib", 1))
+        root_fstype[name] = profile.get("root_fstype", "f2fs")
+        disk1_fstype[name] = profile.get("disk1_fstype", "f2fs")
         if profile.get("disk2"):
             disk2[name] = profile["disk2"]
             disk2_layout[name] = profile.get("disk2_layout", "home")
@@ -108,6 +114,9 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         _bash_assoc("HOST_ROLE", role),
         _bash_assoc("HOST_DISK0", disk0),
         _bash_assoc("HOST_DISK1", disk1),
+        _bash_assoc("HOST_DISK1_START_MIB", disk1_start_mib),
+        _bash_assoc("HOST_ROOT_FSTYPE", root_fstype),
+        _bash_assoc("HOST_DISK1_FSTYPE", disk1_fstype),
         _bash_assoc("HOST_DISK2", disk2),
         _bash_assoc("HOST_DISK2_LAYOUT", disk2_layout),
         _bash_assoc("HOST_DISK2_MOUNT", disk2_mount),

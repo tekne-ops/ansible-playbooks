@@ -113,7 +113,7 @@ require_root() {
 
 require_live_cmds() {
     local missing=() cmd
-    for cmd in nvme parted mkfs.vfat mkfs.f2fs mount pacman pacstrap genfstab reflector rsync \
+    for cmd in nvme parted mkfs.vfat mount pacman pacstrap genfstab reflector rsync \
         arch-chroot efibootmgr timedatectl partprobe curl ping repo-add; do
         command -v "$cmd" &>/dev/null || missing+=("$cmd")
     done
@@ -726,6 +726,7 @@ host_banner() {
         log INFO "Disk2 (${HOST_DISK2_LAYOUT[$host]}): $(host_disk_path "$host" 2) -> ${HOST_DISK2_MOUNT[$host]}"
     fi
     log INFO "Storage: ${HOST_STORAGE_KIND[$host]} | Kernel: linux${HOST_KERNEL[$host]}"
+    log INFO "Filesystems: BOOT=vfat ROOT=${HOST_ROOT_FSTYPE[$host]} disk1=${HOST_DISK1_FSTYPE[$host]}"
 }
 
 host_has_disk2() {
@@ -764,6 +765,66 @@ host_disk_path() {
         nvme_ns "$ctrl"
     else
         echo "$ctrl"
+    fi
+}
+
+# Create a labeled filesystem. f2fs keeps the shared feature flags; ext4 and xfs are forced.
+mkfs_labeled() {
+    local fstype="$1" label="$2" dev="$3"
+    case "$fstype" in
+        f2fs)
+            # shellcheck disable=SC2086
+            run /usr/bin/mkfs.f2fs -l "$label" -i $F2FS_MKFS_OPTS "$dev"
+            ;;
+        ext4)
+            run /usr/bin/mkfs.ext4 -F -L "$label" "$dev"
+            ;;
+        xfs)
+            run /usr/bin/mkfs.xfs -f -L "$label" "$dev"
+            ;;
+        *)
+            die "Unsupported filesystem '$fstype'"
+            ;;
+    esac
+}
+
+# Mount options for the installed root and data filesystems. /boot stays a plain vfat mount.
+mount_fs() {
+    local fstype="$1" dev="$2" mnt="$3"
+    case "$fstype" in
+        f2fs) run /usr/bin/mount -o "$F2FS_MNT_OPTS" "$dev" "$mnt" ;;
+        ext4 | xfs) run /usr/bin/mount -o noatime "$dev" "$mnt" ;;
+        *) die "Unsupported filesystem '$fstype'" ;;
+    esac
+}
+
+ensure_mkfs_tool() {
+    local fstype="$1" cmd pkg
+    case "$fstype" in
+        f2fs) cmd=mkfs.f2fs pkg=f2fs-tools ;;
+        ext4) cmd=mkfs.ext4 pkg=e2fsprogs ;;
+        xfs) cmd=mkfs.xfs pkg=xfsprogs ;;
+        *) die "Unsupported filesystem '$fstype'" ;;
+    esac
+    if command -v "$cmd" >/dev/null 2>&1; then
+        return 0
+    fi
+    if ((DRY_RUN)); then
+        log DRY-RUN "pacman -Sy --needed --noconfirm $pkg"
+        return 0
+    fi
+    log INFO "Installing $pkg so $cmd is available on the live ISO..."
+    run pacman -Sy --needed --noconfirm "$pkg"
+    command -v "$cmd" >/dev/null 2>&1 || die "Missing $cmd after installing $pkg"
+}
+
+# parted start position from a profile offset in MiB. 0 means the beginning of the disk.
+parted_start() {
+    local mib="$1"
+    if [[ "$mib" == 0 ]]; then
+        echo "0%"
+    else
+        echo "${mib}MiB"
     fi
 }
 
@@ -850,10 +911,12 @@ task_format_nvme() {
 # ---------------------------------------------------------------------------
 task_partition() {
     local host="$1"
-    local disk0 disk1 layout
+    local disk0 disk1 layout root_fs disk1_fs
     disk0="$(host_disk_path "$host" 0)"
     disk1="$(host_disk_path "$host" 1)"
     layout="${HOST_DISK1_LAYOUT[$host]}"
+    root_fs="${HOST_ROOT_FSTYPE[$host]}"
+    disk1_fs="${HOST_DISK1_FSTYPE[$host]}"
 
     log INFO "=== Task 2: Partition (GPT) ==="
     log INFO "disk0=$disk0 (BOOT+ROOT) disk1=$disk1 ($layout)"
@@ -863,27 +926,29 @@ task_partition() {
         [[ -b "$disk1" ]] || die "Disk not found: $disk1"
     fi
 
-    # disk0: ESP (fixed ${ESP_SIZE_MIB} MiB for UKI), ROOT f2fs remainder
+    # disk0: ESP (fixed ${ESP_SIZE_MIB} MiB for UKI, vfat), ROOT uses the host filesystem.
     run parted -a optimal "$disk0" --script \
         mklabel gpt \
         mkpart esp 1MiB "${ESP_SIZE_MIB}MiB" \
-        mkpart f2fs "${ESP_SIZE_MIB}MiB" 100% \
+        mkpart "$root_fs" "${ESP_SIZE_MIB}MiB" 100% \
         name 1 BOOT \
         name 2 ROOT \
         set 1 esp on \
         print free
 
     # disk1: HOME (ASTER, KVM) or DOCKER (THEMIS, YUGEN)
+    local disk1_start
+    disk1_start="$(parted_start "${HOST_DISK1_START_MIB[$host]}")"
     if [[ "$layout" == home ]]; then
         run parted -a optimal "$disk1" --script \
             mklabel gpt \
-            mkpart f2fs 1% 100% \
+            mkpart "$disk1_fs" "$disk1_start" 100% \
             name 1 HOME \
             print free
     else
         run parted -a optimal "$disk1" --script \
             mklabel gpt \
-            mkpart f2fs 0% 100% \
+            mkpart "$disk1_fs" "$disk1_start" 100% \
             name 1 DOCKER \
             print free
     fi
@@ -896,16 +961,18 @@ task_partition() {
         if ((! DRY_RUN)); then
             [[ -b "$disk2_dev" ]] || die "Disk not found: $disk2_dev"
         fi
+        local disk2_start
+        disk2_start="$(parted_start "${HOST_DISK2_START_MIB[$host]}")"
         if [[ "$disk2" == home ]]; then
             run parted -a optimal "$disk2_dev" --script \
                 mklabel gpt \
-                mkpart f2fs 1% 100% \
+                mkpart f2fs "$disk2_start" 100% \
                 name 1 HOME \
                 print free
         else
             run parted -a optimal "$disk2_dev" --script \
                 mklabel gpt \
-                mkpart f2fs 0% 100% \
+                mkpart f2fs "$disk2_start" 100% \
                 name 1 DATA \
                 print free
         fi
@@ -930,20 +997,24 @@ task_mkfs() {
         label_disk1=DOCKER
     fi
 
-    log INFO "=== Task 3: Create filesystems ==="
-    log INFO "BOOT=$boot ROOT=$part_root ${label_disk1}=$part_disk1"
+    local root_fs="${HOST_ROOT_FSTYPE[$host]}"
+    local disk1_fs="${HOST_DISK1_FSTYPE[$host]}"
 
+    log INFO "=== Task 3: Create filesystems ==="
+    log INFO "BOOT=$boot (vfat) ROOT=$part_root ($root_fs) ${label_disk1}=$part_disk1 ($disk1_fs)"
+
+    ensure_mkfs_tool "$root_fs"
+    ensure_mkfs_tool "$disk1_fs"
     run /usr/bin/mkfs.vfat -F32 -n BOOT "$boot"
-    # shellcheck disable=SC2086
-    run /usr/bin/mkfs.f2fs -l ROOT -i $F2FS_MKFS_OPTS "$part_root"
-    # shellcheck disable=SC2086
-    run /usr/bin/mkfs.f2fs -l "$label_disk1" -i $F2FS_MKFS_OPTS "$part_disk1"
+    mkfs_labeled "$root_fs" ROOT "$part_root"
+    mkfs_labeled "$disk1_fs" "$label_disk1" "$part_disk1"
 
     if host_has_disk2 "$host"; then
         local part_disk2 label_disk2="${HOST_DISK2_LAYOUT[$host]}"
         part_disk2="$(host_part_path "$host" 2 1)"
         label_disk2="${label_disk2^^}"
         log INFO "${label_disk2}=$part_disk2"
+        ensure_mkfs_tool f2fs
         # shellcheck disable=SC2086
         run /usr/bin/mkfs.f2fs -l "$label_disk2" -i $F2FS_MKFS_OPTS "$part_disk2"
     fi
@@ -967,12 +1038,15 @@ task_mount() {
         mnt_disk1="${INSTALL_ROOT}/var/lib/docker"
     fi
 
+    local root_fs="${HOST_ROOT_FSTYPE[$host]}"
+    local disk1_fs="${HOST_DISK1_FSTYPE[$host]}"
+
     log INFO "=== Task 4: Mount filesystems ==="
-    log INFO "ROOT=$part_root -> $mnt_root | disk1 ($layout) -> $mnt_disk1"
+    log INFO "ROOT=$part_root ($root_fs) -> $mnt_root | disk1 ($layout, $disk1_fs) -> $mnt_disk1"
 
     run mkdir -p "$mnt_root" "$mnt_disk1"
 
-    run /usr/bin/mount -o "$F2FS_MNT_OPTS" "$part_root" "$mnt_root"
+    mount_fs "$root_fs" "$part_root" "$mnt_root"
     run mkdir -p "$mnt_root/boot"
     if [[ "$layout" == home ]]; then
         run mkdir -p "$mnt_root/home"
@@ -980,7 +1054,7 @@ task_mount() {
         run mkdir -p "$mnt_root/var/lib/docker"
     fi
     run /usr/bin/mount "$boot" "$mnt_root/boot"
-    run /usr/bin/mount -o "$F2FS_MNT_OPTS" "$part_disk1" "$mnt_disk1"
+    mount_fs "$disk1_fs" "$part_disk1" "$mnt_disk1"
 
     if host_has_disk2 "$host"; then
         local part_disk2 mnt_disk2="${INSTALL_ROOT}${HOST_DISK2_MOUNT[$host]}"

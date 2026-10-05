@@ -90,6 +90,8 @@
       "disk1_layout": "home",
       "disk1_mount": "/home",
       "disk1_start_mib": 1,
+      "root_fstype": "ext4",
+      "disk1_fstype": "xfs",
       "kernel_suffix": "-tkg-aster",
       "kernel_pkg": "linux-tkg-aster",
       "mcode_packages": [
