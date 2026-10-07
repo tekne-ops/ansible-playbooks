@@ -30,7 +30,6 @@ ansible-playbooks/
 ├── install/                 # Arch live-ISO provisioning (not Ansible playbooks)
 │   ├── arch-install.sh
 │   ├── render_autoinstall.py
-│   ├── autoinstall.yaml     # Interactive identity; no committed password or key
 │   ├── efi.sh
 │   ├── profiles/hosts.json
 │   └── lib/tekne_profiles.py
@@ -81,7 +80,7 @@ Arch Linux workstation playbook. Runs on the `workstations` group with `connecti
 | 2 | `tekne.devops.network` | `network-host` | systemd-networkd, WiFi, br0, connectivity wait |
 | 3 | `tekne.devops.os` | `os` | Locale, NTP, mirrors, tekne repo clones |
 | 4 | `tekne.devops.pipewire` | `pipewire` | PipeWire audio stack |
-| 5 | `tekne.devops.gpu` | `gpu` | NVIDIA (YUGEN) or Intel/Mesa drivers |
+| 5 | `tekne.devops.gpu` | `gpu` | NVIDIA (YUGEN), hybrid Intel+NVIDIA (ASTER), or Intel/Mesa (KVM) |
 | 6 | `tekne.devops.xfce4` | `xfce4` | XFCE4 desktop, LightDM, bluetooth |
 | 7 | `tekne.devops.kde` | `kde` | KDE Plasma desktop |
 | 8 | `tekne.devops.gaming` | `gaming` | Steam, Lutris, Wine, gamemode |
@@ -146,9 +145,7 @@ ansible-playbook playbooks/k8s.yml -i inventories/k8s/hosts.yml
 
 ## Fresh Arch Linux Installation
 
-Two installer scripts are available from the live ISO:
-
-### arch-install.sh (recommended)
+### arch-install.sh
 
 Per-host profiles with dry-run, resume-from-task, and vault integration. Host profiles live in `install/profiles/hosts.json`.
 
@@ -161,7 +158,9 @@ Per-host profiles with dry-run, resume-from-task, and vault integration. Host pr
 
 After reboot, run `playbooks/workstation.sh` (ASTER, YUGEN), `playbooks/server.sh` (THEMIS), or the KVM `workstation.yml` command from `install/profiles/hosts.json`.
 
-`install/autoinstall.yaml` leaves identity interactive, so the committed file has no password hash or SSH key. `install/render_autoinstall.py` still renders a template that contains `REPLACE_WITH_*` tokens and exits without writing a file if any placeholder is unresolved.
+ASTER uses ext4 for `/` and XFS for `/home`. THEMIS, YUGEN, and KVM use F2FS for those volumes. `/boot` is VFAT on every host. The UKI includes Plymouth with the firmware logo theme, so the manufacturer logo stays up through boot and shutdown.
+
+`install/render_autoinstall.py` renders an Ubuntu autoinstall template. It exits without writing a file while any `REPLACE_WITH_*` placeholder is unresolved. The rendered autoinstall file is not committed.
 
 ## Collection Dependencies
 
@@ -188,6 +187,7 @@ Secrets are stored in `vars/vault.yml` (Ansible Vault encrypted). Playbooks load
 | `user_password` | Default password hash for users |
 | `root_password` | Root password hash (optional) |
 | `os_wifi_passphrase` | ASTER WiFi passphrase |
+| `git_token` | GitHub token used by the `os` role to clone private tekne repositories |
 | `haproxy_ssl_pem` | Full PEM (cert + key) for tekne.sv TLS |
 
 ```bash
@@ -199,7 +199,7 @@ ansible-vault view vars/vault.yml
 
 - Arch Linux (workstation/server playbooks) or Debian 13 (k8s playbook)
 - Python 3
-- Ansible Core 2.14+
+- Ansible Core 2.19+
 - Collections: `amazon.aws`, `community.general`, `community.docker`, `ansible.posix`, `tekne.devops`
 
 ```bash
