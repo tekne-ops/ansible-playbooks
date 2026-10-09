@@ -48,6 +48,19 @@ def pacstrap_base_packages(data: dict[str, Any] | None = None) -> list[str]:
     return list(global_config(data)["pacstrap_base_packages"])
 
 
+def _nonnegative_int(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
+    return value
+
+
+def _optional_lbaf(profile: dict[str, Any], key: str) -> str | None:
+    """Return an explicit NVMe LBA format index, or None when the drive format is left unchanged."""
+    if key not in profile or profile[key] is None:
+        return None
+    return str(_nonnegative_int(profile[key], key))
+
+
 def _bash_assoc(name: str, mapping: dict[str, str]) -> str:
     """Global associative array (declare -gA) so eval from load_host_profiles survives function return."""
     lines = [f"declare -gA {name}=("]
@@ -82,6 +95,9 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
     kernel_cmdline: dict[str, str] = {}
     chroot_ansible_tags: dict[str, str] = {}
     post_install_command: dict[str, str] = {}
+    disk0_lbaf: dict[str, str] = {}
+    disk1_lbaf: dict[str, str] = {}
+    disk2_lbaf: dict[str, str] = {}
 
     _default_cmdline = (
         "kernel.split_lock_mitigate=0 split_lock_detect=off nowatchdog "
@@ -109,6 +125,14 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         kernel_cmdline[name] = profile.get("kernel_cmdline", _default_cmdline)
         chroot_ansible_tags[name] = ",".join(profile["chroot_ansible_tags"])
         post_install_command[name] = profile["post_install_command"]
+        for key, dest in (
+            ("disk0_lbaf", disk0_lbaf),
+            ("disk1_lbaf", disk1_lbaf),
+            ("disk2_lbaf", disk2_lbaf),
+        ):
+            lbaf = _optional_lbaf(profile, key)
+            if lbaf is not None:
+                dest[name] = lbaf
 
     parts = [
         _bash_assoc("HOST_ROLE", role),
@@ -130,11 +154,15 @@ def shell_init(data: dict[str, Any] | None = None) -> str:
         _bash_assoc("HOST_EFI_INTEL", efi_intel),
         _bash_assoc("HOST_CHROOT_ANSIBLE_TAGS", chroot_ansible_tags),
         _bash_assoc("HOST_POST_INSTALL_COMMAND", post_install_command),
+        _bash_assoc("HOST_DISK0_LBAF", disk0_lbaf),
+        _bash_assoc("HOST_DISK1_LBAF", disk1_lbaf),
+        _bash_assoc("HOST_DISK2_LBAF", disk2_lbaf),
         f'declare -gra PACSTRAP_BASE_PKGS=({" ".join(shlex.quote(p) for p in g["pacstrap_base_packages"])})',
         f'declare -gra VALID_HOSTS=({" ".join(shlex.quote(h) for h in valid_hosts(data))})',
         f'declare -gr F2FS_MNT_OPTS={shlex.quote(g["f2fs_mount_opts"])}',
         f'declare -gr F2FS_MKFS_OPTS={shlex.quote(g["f2fs_mkfs_opts"])}',
         f'declare -gr ESP_SIZE_MIB={g["esp_size_mib"]}',
+        f'declare -gr GPT_TAIL_RESERVE_MIB={_nonnegative_int(g["gpt_tail_reserve_mib"], "gpt_tail_reserve_mib")}',
         f'declare -gr TIMEZONE={shlex.quote(g["timezone"])}',
         f'declare -gr THEMIS_BINARIES_REPO={shlex.quote(g["themis_binaries_repo"])}',
         f'declare -gr THEMIS_BINARIES_ROOT={shlex.quote(g["themis_binaries_root"])}',

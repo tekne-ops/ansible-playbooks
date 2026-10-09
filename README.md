@@ -158,7 +158,7 @@ Per-host profiles with dry-run, resume-from-task, and vault integration. Host pr
 
 After reboot, run `playbooks/workstation.sh` (ASTER, YUGEN), `playbooks/server.sh` (THEMIS), or the KVM `workstation.yml` command from `install/profiles/hosts.json`.
 
-ASTER uses ext4 for `/` and XFS for `/home`. THEMIS, YUGEN, and KVM use F2FS for those volumes. `/boot` is VFAT on every host. The UKI includes Plymouth with the firmware logo theme, so the manufacturer logo stays up through boot and shutdown.
+ASTER uses ext4 for `/` (`mkfs.ext4 -b 4096 -m 1`) and XFS for `/home` (`mkfs.xfs -s size=4096`). THEMIS, YUGEN, and KVM use F2FS for those volumes. `/boot` is VFAT on every host. The last partition on each disk ends `gpt_tail_reserve_mib` (4 MiB) before the disk so the size stays MiB-aligned. NVMe format keeps the drive's current LBA size; set `disk0_lbaf`, `disk1_lbaf`, or `disk2_lbaf` on a host only after that drive's `nvme id-ns -H` output shows the chosen format is stable. The installer prints those LBA formats before it erases anything. The UKI includes Plymouth with the firmware logo theme, so the manufacturer logo stays up through boot and shutdown.
 
 `install/render_autoinstall.py` renders an Ubuntu autoinstall template. It exits without writing a file while any `REPLACE_WITH_*` placeholder is unresolved. The rendered autoinstall file is not committed.
 

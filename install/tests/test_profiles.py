@@ -50,6 +50,28 @@ class InstallProfilesTest(unittest.TestCase):
         self.assertIn("[ASTER]=ext4", output)
         self.assertIn("[ASTER]=xfs", output)
         self.assertIn("[THEMIS]=f2fs", output)
+        self.assertIn("declare -gr GPT_TAIL_RESERVE_MIB=4", output)
+        self.assertIn("declare -gA HOST_DISK0_LBAF=(\n)", output)
+        self.assertIn("declare -gA HOST_DISK1_LBAF=(\n)", output)
+        self.assertIn("declare -gA HOST_DISK2_LBAF=(\n)", output)
+
+    def test_lbaf_stays_unset_until_a_profile_opts_in(self) -> None:
+        data = load_profiles()
+        data["hosts"]["ASTER"]["disk0_lbaf"] = 1
+        data["hosts"]["ASTER"]["disk1_lbaf"] = 0
+        output = shell_init(data)
+        self.assertIn("declare -gA HOST_DISK0_LBAF=(\n  [ASTER]=1\n)", output)
+        self.assertIn("declare -gA HOST_DISK1_LBAF=(\n  [ASTER]=0\n)", output)
+
+    def test_lbaf_and_tail_reserve_reject_invalid_values(self) -> None:
+        data = load_profiles()
+        data["hosts"]["ASTER"]["disk0_lbaf"] = -1
+        with self.assertRaises(ValueError):
+            shell_init(data)
+        data = load_profiles()
+        data["global"]["gpt_tail_reserve_mib"] = True
+        with self.assertRaises(ValueError):
+            shell_init(data)
 
 
 if __name__ == "__main__":

@@ -810,10 +810,14 @@ mkfs_labeled() {
             run /usr/bin/mkfs.f2fs -l "$label" -i $F2FS_MKFS_OPTS "$dev"
             ;;
         ext4)
-            run /usr/bin/mkfs.ext4 -F -L "$label" "$dev"
+            # 4096-byte blocks match NVMe page alignment. 1% reserved keeps
+            # emergency space for root without the 5% default on a large disk.
+            run /usr/bin/mkfs.ext4 -F -L "$label" -b 4096 -m 1 "$dev"
             ;;
         xfs)
-            run /usr/bin/mkfs.xfs -f -L "$label" "$dev"
+            # Force a 4 KiB filesystem sector even when the namespace still
+            # reports 512-byte LBAs. This does not change the drive's LBA format.
+            run /usr/bin/mkfs.xfs -f -L "$label" -s size=4096 "$dev"
             ;;
         *)
             die "Unsupported filesystem '$fstype'"
@@ -861,6 +865,16 @@ parted_start() {
     fi
 }
 
+# End of the last partition on a disk. A MiB offset from the end keeps the
+# backup GPT and the partition size on an IEC boundary; 100% does not.
+parted_tail_end() {
+    if [[ "${GPT_TAIL_RESERVE_MIB}" == 0 ]]; then
+        echo "100%"
+    else
+        echo "-${GPT_TAIL_RESERVE_MIB}MiB"
+    fi
+}
+
 # Partition path (e.g. nvme0n1p1 or vda1)
 host_part_path() {
     local host="$1" disk_idx="$2" partnum="$3"
@@ -870,6 +884,42 @@ host_part_path() {
         echo "${disk}p${partnum}"
     else
         echo "${disk}${partnum}"
+    fi
+}
+
+# Show the drive's LBA formats before erase. Sector size stays unchanged
+# unless the host profile sets disk0_lbaf, disk1_lbaf, or disk2_lbaf.
+report_nvme_lba() {
+    local ctrl="$1"
+    local ns
+    ns="$(nvme_ns "$ctrl")"
+    if ((DRY_RUN)); then
+        log DRY-RUN "nvme id-ns -H ${ns} (LBA formats; unchanged unless diskN_lbaf is set)"
+        log DRY-RUN "nvme id-ctrl -H ${ctrl} (Format NVM and firmware)"
+        return 0
+    fi
+    if ! nvme_ctrl_exists "$ctrl"; then
+        log WARN "NVMe LBA report skipped; controller not present: $ctrl"
+        return 0
+    fi
+    log INFO "NVMe LBA formats for ${ns} (kept unless diskN_lbaf is set):"
+    nvme id-ns -H "$ns" | grep -E 'LBA Format|Relative Performance|in use' \
+        || log WARN "No LBA format lines from nvme id-ns ${ns}"
+    log INFO "NVMe controller ${ctrl}:"
+    nvme id-ctrl -H "$ctrl" | grep -E 'Format NVM|Firmware Slots|Firmware Slot' \
+        || log WARN "No firmware or Format NVM lines from nvme id-ctrl ${ctrl}"
+}
+
+report_host_nvme_lba() {
+    local host="$1"
+    if [[ "${HOST_STORAGE_KIND[$host]}" != nvme ]]; then
+        return 0
+    fi
+    log INFO "=== NVMe LBA preflight (sector size changes only when diskN_lbaf is set) ==="
+    report_nvme_lba "${HOST_DISK0[$host]}"
+    report_nvme_lba "${HOST_DISK1[$host]}"
+    if host_has_disk2 "$host"; then
+        report_nvme_lba "${HOST_DISK2[$host]}"
     fi
 }
 
@@ -886,8 +936,10 @@ confirm_destroy() {
     fi
     echo "  Kernel package: linux${HOST_KERNEL[$host]}"
     echo "  Microcode/GPU stack: ${HOST_MCODE[$host]}"
+    echo "  Final partitions end ${GPT_TAIL_RESERVE_MIB} MiB before the disk end."
     echo "================================================================"
     echo
+    report_host_nvme_lba "$host"
     if ((DRY_RUN)); then
         log INFO "Dry-run mode — no changes will be made."
         return 0
@@ -925,16 +977,28 @@ task_format_nvme() {
     fi
 
     log INFO "=== Task 1: NVMe format (ses=1 user-data erase) ==="
+    if ((FROM_TASK != 0)); then
+        report_host_nvme_lba "$host"
+    fi
 
     for ctrl in "${ctrls[@]}"; do
         if ((! DRY_RUN)); then
             nvme_ctrl_exists "$ctrl" || die "NVMe controller not found: $ctrl (expected char device; namespace: $(nvme_ns "$ctrl"))"
         fi
-        run nvme format "$ctrl" \
-            --namespace-id=1 \
-            --ses=1 \
-            --reset \
-            --force
+        local -a format_args=(--namespace-id=1 --ses=1 --reset --force)
+        local lbaf=""
+        if [[ "$ctrl" == "$ctrl0" ]]; then
+            lbaf="${HOST_DISK0_LBAF[$host]:-}"
+        elif [[ "$ctrl" == "$ctrl1" ]]; then
+            lbaf="${HOST_DISK1_LBAF[$host]:-}"
+        elif host_has_disk2 "$host" && [[ "$ctrl" == "${HOST_DISK2[$host]}" ]]; then
+            lbaf="${HOST_DISK2_LBAF[$host]:-}"
+        fi
+        if [[ -n "$lbaf" ]]; then
+            log WARN "Explicit LBA format ${lbaf} for ${ctrl}; format will change the sector size and erase the namespace"
+            format_args+=(--lbaf="$lbaf")
+        fi
+        run nvme format "$ctrl" "${format_args[@]}"
     done
     partprobe_host "$host"
 }
@@ -963,7 +1027,7 @@ task_partition() {
     run parted -a optimal "$disk0" --script \
         mklabel gpt \
         mkpart esp 1MiB "${ESP_SIZE_MIB}MiB" \
-        mkpart "$root_fs" "${ESP_SIZE_MIB}MiB" 100% \
+        mkpart "$root_fs" "${ESP_SIZE_MIB}MiB" "$(parted_tail_end)" \
         name 1 BOOT \
         name 2 ROOT \
         set 1 esp on \
@@ -975,13 +1039,13 @@ task_partition() {
     if [[ "$layout" == home ]]; then
         run parted -a optimal "$disk1" --script \
             mklabel gpt \
-            mkpart "$disk1_fs" "$disk1_start" 100% \
+            mkpart "$disk1_fs" "$disk1_start" "$(parted_tail_end)" \
             name 1 HOME \
             print free
     else
         run parted -a optimal "$disk1" --script \
             mklabel gpt \
-            mkpart "$disk1_fs" "$disk1_start" 100% \
+            mkpart "$disk1_fs" "$disk1_start" "$(parted_tail_end)" \
             name 1 DOCKER \
             print free
     fi
@@ -999,13 +1063,13 @@ task_partition() {
         if [[ "$disk2" == home ]]; then
             run parted -a optimal "$disk2_dev" --script \
                 mklabel gpt \
-                mkpart f2fs "$disk2_start" 100% \
+                mkpart f2fs "$disk2_start" "$(parted_tail_end)" \
                 name 1 HOME \
                 print free
         else
             run parted -a optimal "$disk2_dev" --script \
                 mklabel gpt \
-                mkpart f2fs "$disk2_start" 100% \
+                mkpart f2fs "$disk2_start" "$(parted_tail_end)" \
                 name 1 DATA \
                 print free
         fi
