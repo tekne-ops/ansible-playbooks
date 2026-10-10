@@ -549,41 +549,43 @@ stage_ansible_sources() {
         "${LIVE_ANSIBLE_COLLECTIONS_ROOT}/" "${mnt}${ANSIBLE_COLLECTIONS_ROOT}/"
 }
 
-# Chroot installs: requirements-chroot.yml uses absolute paths under /media.
-# Galaxy and playbook MUST share ANSIBLE_CONFIG or collections land in different trees.
+# Chroot installs: the staged collections tree is already on Ansible's search
+# path through ansible_collections/tekne. Galaxy only installs the other
+# collections beside that symlink. Installing tekne.devops --force would
+# replace the symlink and can delete the staged source.
 chroot_install_ansible_collections() {
     local mnt="$1"
-    local coll_src="${ANSIBLE_COLLECTIONS_ROOT}/tekne/devops"
+    local coll_src="${ANSIBLE_COLLECTIONS_ROOT}/ansible_collections/tekne/devops"
     local req_chroot="${ANSIBLE_ROOT}/requirements-chroot.yml"
-    local coll_install="${ANSIBLE_COLLECTIONS_ROOT}/ansible_collections"
-    local user_role="${coll_install}/tekne/devops/roles/user"
+    local user_role="${coll_src}/roles/user"
 
     if ((DRY_RUN)); then
-        log DRY-RUN "write ${req_chroot} with source ${coll_src} and ansible-galaxy collection install"
+        log DRY-RUN "require ${coll_src}/galaxy.yml and install third-party collections from ${req_chroot}"
         return 0
     fi
 
     [[ -f "${mnt}${coll_src}/galaxy.yml" ]] ||
-        die "Collection not found at ${coll_src}/galaxy.yml (source staging failed)"
+        die "Collection not found at ${coll_src}/galaxy.yml (ansible_collections/tekne symlink missing)"
 
     cat >"${mnt}${req_chroot}" <<EOF
 ---
 collections:
-  - name: tekne.devops
-    type: dir
-    source: ${coll_src}
   - name: community.general
+    version: ">=10.0.0,<13.0.0"
   - name: community.docker
+    version: ">=4.0.0,<6.0.0"
   - name: amazon.aws
+    version: ">=7.0.0,<12.0.0"
   - name: ansible.posix
+    version: ">=1.5.0,<3.0.0"
 EOF
 
-    log INFO "Installing Ansible collections from ${req_chroot} (tekne.devops @ ${coll_src})..."
+    log INFO "Installing third-party Ansible collections from ${req_chroot}..."
     chroot_run "$mnt" env ANSIBLE_CONFIG="${ANSIBLE_ROOT}/ansible.cfg" \
         ansible-galaxy collection install -r "${req_chroot}" --force
 
     [[ -f "${mnt}${user_role}/tasks/main.yml" ]] ||
-        die "tekne.devops.user not installed at ${user_role} — check ansible-galaxy output and collections_path in ${ANSIBLE_ROOT}/ansible.cfg"
+        die "tekne.devops.user not found at ${user_role}"
 
     log INFO "Collections OK: tekne.devops.user at ${user_role}"
 }
@@ -1447,8 +1449,9 @@ print_post_install_steps() {
     if [[ "$host" == ASTER ]]; then
         echo "  ASTER WiFi connects on this run (deferred during live ISO install)."
     fi
-    if [[ "$host" == ASTER || "$host" == YUGEN ]]; then
-        echo "  Bootstrap may pause for OneDrive authentication."
+    if [[ "$host" == ASTER ]]; then
+        echo "  OneDrive does not prompt during this run. After the desktop is up, run:"
+        echo "    ./playbooks/onedrive-auth.sh"
         echo "  Log in to the desktop first if you want session-specific theming applied."
     fi
     echo
@@ -1514,9 +1517,8 @@ Pipeline tasks (use --from-task N):
   9  ansible-playbooks + UKI boot (mkinitcpio preset, efibootmgr)
 
 After reboot (second Ansible phase):
-  ASTER/YUGEN  cd /media/ansible-playbooks && ./playbooks/workstation.sh
-  THEMIS       cd /media/ansible-playbooks && ./playbooks/server.sh
-  KVM          workstation.yml tags network-host,os,pipewire,nftables (not workstation.sh)
+  ASTER/YUGEN/KVM/THEMIS  cd /media/ansible-playbooks && ./playbooks/workstation.sh
+  THEMIS                  ./playbooks/server.sh is the same runner, restricted to THEMIS
 EOF
 }
 

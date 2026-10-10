@@ -1,0 +1,33 @@
+---
+network_manage_bridge: false
+network_manage_laptop: false
+network_wifi_hosts: []
+network_ethernet_hosts:
+  - YUGEN
+gpu_nvidia_hostnames:
+  - YUGEN
+gpu_hybrid_hostnames: []
+gpu_intel_hostnames: []
+xfce4_lightdm_hosts:
+  - YUGEN
+xfce4_acpi_hosts: []
+os_cpupower_governor: performance
+os_cpupower_start_hosts:
+  - YUGEN
+os_cpupower_skip_hosts: []
+os_irqbalance_start_hosts:
+  - YUGEN
+os_manage_server_services: false
+gaming_hosts:
+  - YUGEN
+gaming_xorg_hosts:
+  - YUGEN
+docker_daemon_json_hosts:
+  - YUGEN
+nftables_server_hosts: []
+nftables_docker_hosts:
+  - YUGEN
+bootstrap_xfce_monitors:
+  - DP-1
+  - DP-2
+  - DP-3

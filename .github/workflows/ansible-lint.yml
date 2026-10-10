@@ -21,7 +21,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install ansible ansible-lint
+          pip install "ansible-core>=2.19.0,<2.22" ansible-lint
           ansible-galaxy collection install -r requirements.yml -p "${RUNNER_TEMP}/collections"
 
       - name: Check install profiles and autoinstall renderer
@@ -37,6 +37,7 @@ jobs:
           ansible-playbook playbooks/server.yml -i inventories/server/hosts.yml --syntax-check
           ansible-playbook playbooks/main.yml --syntax-check
           ansible-playbook playbooks/k8s.yml -i inventories/k8s/hosts.yml --syntax-check
+          ansible-playbook playbooks/onedrive-auth.yml --syntax-check
 
       - name: Lint entrypoints
         env:
@@ -46,4 +47,4 @@ jobs:
           # default workstation inventory has no k8s_cluster or servers group.
           ANSIBLE_HOST_PATTERN_MISMATCH: warning
         run: |
-          ansible-lint playbooks/workstation.yml playbooks/server.yml playbooks/main.yml playbooks/k8s.yml
+          ansible-lint playbooks/workstation.yml playbooks/server.yml playbooks/main.yml playbooks/k8s.yml playbooks/onedrive-auth.yml

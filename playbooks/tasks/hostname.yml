@@ -34,3 +34,15 @@
     cached_hostname_raw: "{{ current_hostname_raw }}"
     hostname: "{{ current_hostname }}"
   tags: [always]
+
+- name: Check for a host profile
+  ansible.builtin.stat:
+    path: "{{ playbook_dir | dirname }}/inventories/host_profiles/{{ current_hostname }}.yml"
+  register: tekne_host_profile
+  tags: [always]
+
+- name: Load the host profile
+  ansible.builtin.include_vars:
+    file: "{{ tekne_host_profile.stat.path }}"
+  when: tekne_host_profile.stat.exists
+  tags: [always]

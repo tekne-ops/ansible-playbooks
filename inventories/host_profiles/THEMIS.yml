@@ -1,0 +1,27 @@
+---
+network_manage_bridge: true
+network_manage_laptop: false
+network_wifi_hosts: []
+network_ethernet_hosts: []
+gpu_nvidia_hostnames: []
+gpu_hybrid_hostnames: []
+gpu_intel_hostnames:
+  - THEMIS
+xfce4_lightdm_hosts: []
+xfce4_acpi_hosts: []
+os_cpupower_governor: schedutil
+os_cpupower_start_hosts:
+  - THEMIS
+os_cpupower_skip_hosts: []
+os_irqbalance_start_hosts:
+  - THEMIS
+os_manage_server_services: true
+gaming_hosts: []
+gaming_xorg_hosts: []
+docker_daemon_json_hosts:
+  - THEMIS
+nftables_server_hosts:
+  - THEMIS
+nftables_docker_hosts:
+  - THEMIS
+bootstrap_xfce_monitors: []

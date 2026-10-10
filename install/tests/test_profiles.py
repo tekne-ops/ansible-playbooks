@@ -32,6 +32,17 @@ class InstallProfilesTest(unittest.TestCase):
                 self.assertTrue(profile["chroot_ansible_tags"])
                 self.assertIn("user", profile["chroot_ansible_tags"])
                 self.assertTrue(profile["post_install_command"])
+                self.assertNotIn("sudo ", profile["post_install_command"])
+                self.assertTrue(profile["maintenance_playbook"])
+                self.assertTrue(profile["maintenance_inventory"])
+                self.assertTrue(profile["maintenance_tags"])
+                profile_path = (
+                    INSTALL_DIR.parent
+                    / "inventories"
+                    / "host_profiles"
+                    / f"{hostname}.yml"
+                )
+                self.assertTrue(profile_path.is_file())
 
     def test_host_packages_do_not_repeat_base_packages(self) -> None:
         base = set(self.data["global"]["pacstrap_base_packages"])

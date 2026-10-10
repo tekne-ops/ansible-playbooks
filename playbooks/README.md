@@ -19,15 +19,16 @@ Every entrypoint checks `/etc/hostname` before the selected roles run, including
 
 | Script | What it runs |
 |--------|----------------|
-| `workstation.sh` | `workstation-aster.sh` or `workstation-yugen.sh`, chosen from `/etc/hostname` |
-| `workstation-aster.sh` | `workstation.yml` tags `network-host,os,gpu,pipewire,gaming,onedrive,xfce4,bootstrap,nftables` |
-| `workstation-yugen.sh` | `workstation.yml` tags `network-host,os,gpu,pipewire,gaming,xfce4,docker-host,libvirt,bootstrap,nftables` |
-| `server.sh` | `server.yml` tags `os,nftables,libvirt,docker-host,haproxy,repotekne,gerbera` on THEMIS |
+| `workstation.sh` | Playbook, inventory, and tags from `install/profiles/hosts.json` for the current host |
+| `workstation-aster.sh` | `workstation.sh` when `/etc/hostname` is ASTER |
+| `workstation-yugen.sh` | `workstation.sh` when `/etc/hostname` is YUGEN |
+| `server.sh` | `workstation.sh` when `/etc/hostname` is THEMIS |
+| `onedrive-auth.sh` | `onedrive-auth.yml`, the interactive Microsoft device login |
 | `consul.sh` | `server.yml` tag `consul` on THEMIS |
 | `jenkins.sh` | `server.yml` tag `jenkins` on THEMIS |
 | `hermes.sh` | tag `hermes` on the workstation or server playbook for the current host |
 
-KVM is not dispatched by `workstation.sh`. Its post-install command is in `install/profiles/hosts.json`.
+Wrappers run `ansible-playbook` as the login user. Plays still set `become: true`. Tag lists live in `install/profiles/hosts.json` under `maintenance_tags`. Capability flags live in `inventories/host_profiles/`.
 
 ## Workstation role order
 

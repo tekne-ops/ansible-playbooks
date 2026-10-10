@@ -156,7 +156,7 @@ Per-host profiles with dry-run, resume-from-task, and vault integration. Host pr
 ./install/arch-install.sh --vault-password-file ~/.vault_pass THEMIS
 ```
 
-After reboot, run `playbooks/workstation.sh` (ASTER, YUGEN), `playbooks/server.sh` (THEMIS), or the KVM `workstation.yml` command from `install/profiles/hosts.json`.
+After reboot, run `playbooks/workstation.sh`. It reads `maintenance_playbook`, `maintenance_inventory`, and `maintenance_tags` from `install/profiles/hosts.json` for the current hostname. `playbooks/server.sh` is the same runner restricted to THEMIS. `playbooks/onedrive-auth.sh` is the one-time Microsoft device login; a normal workstation run does not pause for it.
 
 ASTER uses ext4 for `/` (`mkfs.ext4 -b 4096 -m 1`) and XFS for `/home` (`mkfs.xfs -s size=4096`). THEMIS, YUGEN, and KVM use F2FS for those volumes. `/boot` is VFAT on every host. The last partition on each disk ends `gpt_tail_reserve_mib` (4 MiB) before the disk so the size stays MiB-aligned. NVMe format keeps the drive's current LBA size; set `disk0_lbaf`, `disk1_lbaf`, or `disk2_lbaf` on a host only after that drive's `nvme id-ns -H` output shows the chosen format is stable. The installer prints those LBA formats before it erases anything. The UKI includes Plymouth with the firmware logo theme, so the manufacturer logo stays up through boot and shutdown.
 
@@ -164,17 +164,15 @@ ASTER uses ext4 for `/` (`mkfs.ext4 -b 4096 -m 1`) and XFS for `/home` (`mkfs.xf
 
 ## Collection Dependencies
 
-Install collections before running playbooks:
+Install collections before running playbooks from a checkout that is not beside `ansible-collections`:
 
 ```bash
 ansible-galaxy collection install -r requirements.yml -p "${HOME}/.ansible/collections"
 ```
 
-Pass that path with `ANSIBLE_COLLECTIONS_PATH` when it should take precedence over `collections_path` in `ansible.cfg`. CI does this with a temporary directory.
+Pass that path with `ANSIBLE_COLLECTIONS_PATH` when it should take precedence over `collections_path` in `ansible.cfg`. CI does this with a temporary directory. `requirements.yml` pins `tekne.devops` to a collection commit and bounds `amazon.aws`, `community.general`, `community.docker`, and `ansible.posix`.
 
-`requirements.yml` installs `amazon.aws`, `community.general`, `community.docker`, `ansible.posix`, and `tekne.devops` from Git. That file is what CI runs, so a standalone checkout does not need a sibling `ansible-collections` directory.
-
-For local development, `ansible.cfg` sets `collections_path = ../ansible-collections`. On the live ISO, `install/arch-install.sh` stages that tree and installs it from a generated `requirements-chroot.yml`.
+For local development, `ansible.cfg` sets `collections_path = ../ansible-collections`. That directory contains `ansible_collections/tekne`, which points at the collection source. On the live ISO, `install/arch-install.sh` stages that tree and installs it from a generated `requirements-chroot.yml`.
 
 ## Vault
 

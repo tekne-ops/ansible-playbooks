@@ -1,0 +1,33 @@
+---
+# One-time Microsoft device login. Normal workstation convergence does not pause.
+
+- name: Authenticate OneDrive
+  hosts: workstations
+  connection: local
+  become: true
+
+  vars:
+    tekne_allowed_hostnames:
+      - ASTER
+      - YUGEN
+      - KVM
+    bootstrap_onedrive_interactive: true
+
+  pre_tasks:
+    - name: Assert the workstation host profile
+      ansible.builtin.import_tasks: tasks/hostname.yml
+
+    - name: Load encrypted vault variables
+      ansible.builtin.import_tasks: tasks/load_vault.yml
+
+  tasks:
+    - name: Install OneDrive
+      ansible.builtin.import_role:
+        name: tekne.devops.onedrive
+      tags: [onedrive]
+
+    - name: Run the interactive OneDrive first sync
+      ansible.builtin.import_role:
+        name: tekne.devops.bootstrap
+        tasks_from: onedrive_sync.yml
+      tags: [onedrive, bootstrap]

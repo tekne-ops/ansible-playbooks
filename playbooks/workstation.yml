@@ -22,9 +22,6 @@
     - name: Load encrypted vault variables
       ansible.builtin.import_tasks: tasks/load_vault.yml
 
-    - name: Set workstation bootstrap facts
-      ansible.builtin.import_tasks: tasks/workstation_facts.yml
-
   tasks:
     - name: Apply workstation roles
       ansible.builtin.import_tasks: tasks/workstation_roles.yml

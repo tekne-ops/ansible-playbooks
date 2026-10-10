@@ -1,0 +1,23 @@
+---
+network_manage_bridge: false
+network_manage_laptop: false
+network_wifi_hosts: []
+network_ethernet_hosts:
+  - KVM
+gpu_nvidia_hostnames: []
+gpu_hybrid_hostnames: []
+gpu_intel_hostnames:
+  - KVM
+xfce4_lightdm_hosts: []
+xfce4_acpi_hosts: []
+os_cpupower_governor: schedutil
+os_cpupower_start_hosts: []
+os_cpupower_skip_hosts: []
+os_irqbalance_start_hosts: []
+os_manage_server_services: false
+gaming_hosts: []
+gaming_xorg_hosts: []
+docker_daemon_json_hosts: []
+nftables_server_hosts: []
+nftables_docker_hosts: []
+bootstrap_xfce_monitors: []

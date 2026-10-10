@@ -2,15 +2,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
-args=(
-    --tags network-host,os,gpu,pipewire,gaming,xfce4,docker-host,libvirt,bootstrap,nftables
-)
-if [[ $# -eq 0 ]]; then
-    args+=(--ask-vault-pass)
-else
-    args+=("$@")
+HOST="$(tr '[:lower:]' '[:upper:]' </etc/hostname | tr -d '[:space:]')"
+if [[ "$HOST" != YUGEN ]]; then
+    echo "workstation-yugen.sh: this playbook is for YUGEN (current host: ${HOST})" >&2
+    exit 1
 fi
-exec sudo ansible-playbook playbooks/workstation.yml \
-    -i inventories/workstation/hosts.yml \
-    "${args[@]}"
+
+exec "$ROOT/playbooks/workstation.sh" "$@"

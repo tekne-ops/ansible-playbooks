@@ -1,0 +1,31 @@
+---
+network_manage_bridge: false
+network_manage_laptop: true
+network_wifi_hosts:
+  - ASTER
+network_ethernet_hosts:
+  - ASTER
+gpu_nvidia_hostnames: []
+gpu_hybrid_hostnames:
+  - ASTER
+gpu_intel_hostnames: []
+xfce4_lightdm_hosts:
+  - ASTER
+xfce4_acpi_hosts:
+  - ASTER
+os_cpupower_governor: schedutil
+os_cpupower_start_hosts: []
+os_cpupower_skip_hosts:
+  - ASTER
+os_irqbalance_start_hosts:
+  - ASTER
+os_manage_server_services: false
+gaming_hosts:
+  - ASTER
+gaming_xorg_hosts: []
+docker_daemon_json_hosts: []
+nftables_server_hosts: []
+nftables_docker_hosts: []
+bootstrap_xfce_monitors:
+  - eDP-1
+  - DP-1-1

@@ -7,22 +7,13 @@ exclude_paths:
   - vars/vault.yml
   - install/autoinstall.yaml
 
-skip_list:
-  - meta-incorrect
-  - schema[meta]
-  - var-naming[no-role-prefix]
-  - no-changed-when
-  - command-instead-of-module
-  - risky-shell-pipe
-  - risky-file-permissions
-  - name[casing]
-  - name[play]
-
 mock_modules:
   - ansible.builtin.getent
   - community.general.pacman
   - community.general.dpkg_selections
 
+# Role content is linted in the collection repository. These mocks keep this
+# playbook project from failing closed when that checkout is absent.
 mock_roles:
   - tekne.devops.bootstrap
   - tekne.devops.consul
@@ -49,5 +40,5 @@ write_list:
   - none
 
 kinds:
-  - playbook: playbooks/{main,workstation,server,k8s}.yml
+  - playbook: playbooks/{main,workstation,server,k8s,onedrive-auth}.yml
   - tasks: playbooks/tasks/*.yml
