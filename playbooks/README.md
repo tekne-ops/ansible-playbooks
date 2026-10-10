@@ -20,7 +20,7 @@ Every entrypoint checks `/etc/hostname` before the selected roles run, including
 | Script | What it runs |
 |--------|----------------|
 | `workstation.sh` | `workstation-aster.sh` or `workstation-yugen.sh`, chosen from `/etc/hostname` |
-| `workstation-aster.sh` | `workstation.yml` tags `network-host,os,gpu,pipewire,gaming,onedrive,bootstrap,nftables` |
+| `workstation-aster.sh` | `workstation.yml` tags `network-host,os,gpu,pipewire,gaming,onedrive,xfce4,bootstrap,nftables` |
 | `workstation-yugen.sh` | `workstation.yml` tags `network-host,os,gpu,pipewire,gaming,xfce4,docker-host,libvirt,bootstrap,nftables` |
 | `server.sh` | `server.yml` tags `os,nftables,libvirt,docker-host,haproxy,repotekne,gerbera` on THEMIS |
 | `consul.sh` | `server.yml` tag `consul` on THEMIS |

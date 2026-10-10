@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 args=(
-    --tags network-host,os,gpu,pipewire,gaming,onedrive,bootstrap,nftables
+    --tags "network-host,os,gpu,pipewire,gaming,onedrive,xfce4,bootstrap,nftables"
 )
 if [[ $# -eq 0 ]]; then
     args+=(--ask-vault-pass)

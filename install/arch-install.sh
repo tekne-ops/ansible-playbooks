@@ -1024,7 +1024,7 @@ task_partition() {
     fi
 
     # disk0: ESP (fixed ${ESP_SIZE_MIB} MiB for UKI, vfat), ROOT uses the host filesystem.
-    run parted -a optimal "$disk0" --script \
+    run parted -a optimal "$disk0" -- \
         mklabel gpt \
         mkpart esp 1MiB "${ESP_SIZE_MIB}MiB" \
         mkpart "$root_fs" "${ESP_SIZE_MIB}MiB" "$(parted_tail_end)" \
@@ -1037,13 +1037,13 @@ task_partition() {
     local disk1_start
     disk1_start="$(parted_start "${HOST_DISK1_START_MIB[$host]}")"
     if [[ "$layout" == home ]]; then
-        run parted -a optimal "$disk1" --script \
+        run parted -a optimal "$disk1" -- \
             mklabel gpt \
             mkpart "$disk1_fs" "$disk1_start" "$(parted_tail_end)" \
             name 1 HOME \
             print free
     else
-        run parted -a optimal "$disk1" --script \
+        run parted -a optimal "$disk1" -- \
             mklabel gpt \
             mkpart "$disk1_fs" "$disk1_start" "$(parted_tail_end)" \
             name 1 DOCKER \
@@ -1061,13 +1061,13 @@ task_partition() {
         local disk2_start
         disk2_start="$(parted_start "${HOST_DISK2_START_MIB[$host]}")"
         if [[ "$disk2" == home ]]; then
-            run parted -a optimal "$disk2_dev" --script \
+            run parted -a optimal "$disk2_dev" -- \
                 mklabel gpt \
                 mkpart f2fs "$disk2_start" "$(parted_tail_end)" \
                 name 1 HOME \
                 print free
         else
-            run parted -a optimal "$disk2_dev" --script \
+            run parted -a optimal "$disk2_dev" -- \
                 mklabel gpt \
                 mkpart f2fs "$disk2_start" "$(parted_tail_end)" \
                 name 1 DATA \
