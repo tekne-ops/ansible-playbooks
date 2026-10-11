@@ -957,6 +957,25 @@ task_set_ntp() {
     log INFO "=== Task 0: timedatectl / enable NTP ==="
     run timedatectl
     run timedatectl set-ntp true
+    wait_for_ntp_sync
+}
+
+wait_for_ntp_sync() {
+    local attempt
+    if ((DRY_RUN)); then
+        log DRY-RUN "wait up to 30 seconds for timedatectl NTPSynchronized=yes"
+        return 0
+    fi
+
+    for ((attempt = 1; attempt <= 30; attempt++)); do
+        if [[ "$(timedatectl show --property=NTPSynchronized --value 2>/dev/null)" == yes ]]; then
+            log INFO "System clock synchronized by NTP."
+            return 0
+        fi
+        sleep 1
+    done
+    timedatectl status >&2 || true
+    die "NTP did not synchronize within 30 seconds; package signatures cannot be validated safely"
 }
 
 # ---------------------------------------------------------------------------
@@ -1189,8 +1208,10 @@ task_configure_pacman() {
     refresh_live_mirrorlist
     configure_pacman_options
 
-    log INFO "Synchronizing live package databases..."
-    run pacman -Syy
+    log INFO "Refreshing live package databases and Arch signing keys..."
+    # Arch explicitly permits updating archlinux-keyring before the full
+    # transaction. This lets an older live ISO verify newly signed packages.
+    run pacman -Sy --needed --noconfirm archlinux-keyring
 }
 
 # Install-time ranking is deliberately smaller than the steady-state policy in
@@ -1441,6 +1462,10 @@ task_run_ansible() {
     require_chroot_ready "$mnt"
     require_chroot_cmds "$mnt"
     wait_for_network
+    # A resumed --from-task 9 run may not have executed task 0.
+    run timedatectl set-ntp true
+    wait_for_ntp_sync
+    prepare_chroot_pacman "$mnt"
 
     if [[ -n "$VAULT_PASS_FILE" ]]; then
         [[ -r "$VAULT_PASS_FILE" ]] || die "Vault password file not readable: $VAULT_PASS_FILE"
@@ -1467,6 +1492,47 @@ task_run_ansible() {
 
     chroot_cleanup_vault_pass "$mnt"
     log INFO "Ansible configuration and UKI boot finalization completed."
+}
+
+# pacstrap -K creates a target-specific keyring and the archlinux-keyring
+# package (a dependency of base) populates it. Validate that result before
+# Ansible invokes pacman. A reset is limited to this fresh target and happens
+# only if the generated key database is unusable.
+prepare_chroot_pacman() {
+    local mnt="$1"
+
+    log INFO "Validating the target pacman keyring before Ansible..."
+    if ((DRY_RUN)); then
+        log DRY-RUN "pacman-key --init && pacman-key --populate archlinux"
+        log DRY-RUN "reset the fresh target keyring only if validation fails"
+        log DRY-RUN "pacman -Sy --needed archlinux-keyring && pacman -Su"
+        return 0
+    fi
+
+    if ! chroot_bash "$mnt" \
+        "pacman-key --init &&
+         pacman-key --populate archlinux &&
+         pacman-key --list-keys 2>/dev/null | grep -q '^pub'"; then
+        log WARN "Target pacman keyring is incomplete; rebuilding it."
+        reset_chroot_pacman_keyring "$mnt"
+    fi
+
+    # This is the Arch-supported sequence for an outdated keyring: update the
+    # keyring immediately after syncing, then complete the full upgrade.
+    if ! chroot_run "$mnt" pacman -Sy --needed --noconfirm archlinux-keyring; then
+        log WARN "Keyring package verification failed; rebuilding the fresh target keyring and retrying."
+        reset_chroot_pacman_keyring "$mnt"
+        chroot_run "$mnt" pacman -Sy --needed --noconfirm archlinux-keyring
+    fi
+    chroot_run "$mnt" pacman-key --populate archlinux
+    chroot_run "$mnt" pacman -Su --noconfirm
+}
+
+reset_chroot_pacman_keyring() {
+    local mnt="$1"
+    run rm -rf "${mnt}/etc/pacman.d/gnupg"
+    chroot_run "$mnt" pacman-key --init
+    chroot_run "$mnt" pacman-key --populate archlinux
 }
 
 task_summary() {
@@ -1551,16 +1617,16 @@ Hosts:
 If HOST is omitted, detection uses DMI product/board name or hostname.
 
 Pipeline tasks (use --from-task N):
-  0  timedatectl + NTP
+  0  timedatectl + verified NTP synchronization
   1  nvme secure format
   2  GPT partition
   3  mkfs
   4  mount under $INSTALL_ROOT
-  5  live pacman repos (THEMIS local-repo / tekne), reflector, pacman -Syy
+  5  live pacman repos, reflector, refreshed Arch signing keyring
   6  pacstrap
   7  fstab, pacman.conf copy, symlinks
   8  chroot locale, timezone, hostname, THEMIS cache binds
-  9  ansible-playbooks + UKI boot (mkinitcpio preset, efibootmgr)
+  9  target keyring/full-upgrade preflight, Ansible, UKI boot
 
 After reboot (second Ansible phase):
   ASTER/YUGEN/KVM/THEMIS  cd /media/ansible-playbooks && ./playbooks/workstation.sh
