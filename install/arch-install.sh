@@ -1186,16 +1186,62 @@ task_configure_pacman() {
     append_pacman_repo "$host"
 
     log INFO "Updating live mirrorlist with reflector..."
-    run /usr/bin/reflector \
-        --country 'United States' \
-        --latest 100 \
-        --sort rate \
-        --protocol 'https,ftp' \
-        --age 168 \
-        --save /etc/pacman.d/mirrorlist
+    refresh_live_mirrorlist
+    configure_pacman_options
 
     log INFO "Synchronizing live package databases..."
     run pacman -Syy
+}
+
+# Install-time ranking is deliberately smaller than the steady-state policy in
+# the os role. ArchWiki's install example is five recent HTTPS mirrors.
+refresh_live_mirrorlist() {
+    local candidate
+    if ((DRY_RUN)); then
+        log DRY-RUN "/usr/bin/reflector --latest 5 --protocol https --age 12 --sort rate --save /tmp/arch-install-mirrorlist"
+        log DRY-RUN "require '^Server ' in the candidate, then install it to /etc/pacman.d/mirrorlist"
+        return 0
+    fi
+
+    candidate="$(mktemp /tmp/arch-install-mirrorlist.XXXXXX)"
+    if ! run /usr/bin/reflector \
+        --latest 5 \
+        --protocol https \
+        --age 12 \
+        --sort rate \
+        --save "$candidate"; then
+        rm -f "$candidate"
+        die "reflector failed to rank live mirrors"
+    fi
+    if ! grep -q '^Server ' "$candidate"; then
+        rm -f "$candidate"
+        die "reflector produced a mirrorlist with no Server entries"
+    fi
+    run install -m 0644 "$candidate" /etc/pacman.d/mirrorlist
+    rm -f "$candidate"
+}
+
+# Matches os role defaults: five parallel downloads, and NoExtract so
+# pacman-mirrorlist cannot drop a mirrorlist.pacnew over the managed file.
+configure_pacman_options() {
+    set_pacman_option ParallelDownloads 5
+    set_pacman_option NoExtract etc/pacman.d/mirrorlist
+}
+
+set_pacman_option() {
+    local key="$1"
+    local value="$2"
+    local file=/etc/pacman.conf
+    if ((DRY_RUN)); then
+        log DRY-RUN "set ${key} = ${value} in ${file}"
+        return 0
+    fi
+    if grep -qE "^#?[[:space:]]*${key}[[:space:]]*=" "$file"; then
+        sed -i -E "s|^#?[[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|" "$file"
+    else
+        sed -i "/^\\[options\\]/a ${key} = ${value}" "$file"
+    fi
+    grep -qxF "${key} = ${value}" "$file" || die "failed to set ${key} in ${file}"
 }
 
 # ---------------------------------------------------------------------------
